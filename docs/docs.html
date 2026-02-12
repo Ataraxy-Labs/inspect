@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Docs | inspect</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="logo" href="index.html">inspect</a>
+      <div class="links">
+        <a href="index.html">Home</a>
+        <a href="benchmarks.html">Benchmarks</a>
+        <a href="docs.html" class="active">Docs</a>
+        <a href="https://github.com/Ataraxy-Labs/inspect">GitHub</a>
+        <a href="llms.txt">llms.txt</a>
+      </div>
+    </nav>
+
+    <div style="padding: 48px 0 12px;">
+      <h1 style="font-size: 28px; font-weight: 700; color: var(--accent); letter-spacing: -1px; margin-bottom: 12px;">Documentation</h1>
+      <p style="font-size: 14px; color: var(--dim); line-height: 1.7; max-width: 600px;">
+        Commands, change classification, risk scoring, and supported languages.
+      </p>
+    </div>
+
+    <!-- Commands -->
+    <section>
+      <h2>Commands</h2>
+      <p class="section-desc">All commands support <code style="color:var(--cyan);background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;">--format json</code> for machine-readable output.</p>
+
+      <div class="cmd-doc">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">inspect diff &lt;ref&gt;</span>
+          <span class="cmd-doc-desc">Review entity-level changes for a commit or range</span>
+        </div>
+        <div class="cmd-doc-flags">
+          <div class="flag"><code>--context</code> <span>Show dependency details for each entity</span></div>
+          <div class="flag"><code>--min-risk &lt;level&gt;</code> <span>Filter by minimum risk (low, medium, high, critical)</span></div>
+          <div class="flag"><code>--format &lt;fmt&gt;</code> <span>terminal (default) or json</span></div>
+        </div>
+      </div>
+
+      <div class="cmd-doc">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">inspect pr &lt;number&gt;</span>
+          <span class="cmd-doc-desc">Review all changes in a GitHub pull request</span>
+        </div>
+      </div>
+
+      <div class="cmd-doc">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">inspect file &lt;path&gt;</span>
+          <span class="cmd-doc-desc">Review uncommitted changes in a specific file</span>
+        </div>
+      </div>
+
+      <div class="cmd-doc">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">inspect bench --repo &lt;path&gt;</span>
+          <span class="cmd-doc-desc">Benchmark entity-level review across a repo's commit history</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Change Classification -->
+    <section>
+      <h2>Change classification</h2>
+      <p class="section-desc">
+        Based on <a href="https://arxiv.org/abs/2409.14121" style="color:var(--cyan)">ConGra (arXiv:2409.14121)</a>. Every change is classified along three dimensions: text, syntax, and functional.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Classification</th><th>What changed</th><th>Review needed?</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span style="color:var(--green)">Text</span></td>
+            <td>Comments, whitespace, docs only</td>
+            <td class="lose">usually skip</td>
+          </tr>
+          <tr>
+            <td><span style="color:var(--cyan)">Syntax</span></td>
+            <td>Signatures, types, declarations (no logic)</td>
+            <td class="mid">check API surface</td>
+          </tr>
+          <tr>
+            <td><span style="color:var(--red)">Functional</span></td>
+            <td>Logic or behavior</td>
+            <td class="high">careful review</td>
+          </tr>
+          <tr>
+            <td><span style="color:var(--fg)">Mixed</span></td>
+            <td>Combinations of the above</td>
+            <td class="high">careful review</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Risk Scoring -->
+    <section>
+      <h2>Risk scoring</h2>
+      <p class="section-desc">Graph-centric. Dependents and blast radius are the primary discriminators. Entities at the center of the dependency graph score highest. Cosmetic-only changes get an 80% discount.</p>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-num" style="border-color:var(--red);color:var(--red)">1</div>
+          <div class="flow-content">
+            <div class="title">Dependent count (primary)</div>
+            <div class="desc">How many other entities call or reference this one. Logarithmic scale. An entity with 10 dependents scores significantly higher than one with 0.</div>
+          </div>
+        </div>
+        <div class="flow-connector"><div class="line"></div></div>
+        <div class="flow-step">
+          <div class="flow-num" style="border-color:var(--orange);color:var(--orange)">2</div>
+          <div class="flow-content">
+            <div class="title">Blast radius (primary)</div>
+            <div class="desc">Transitive impact via BFS through the dependency graph. Normalized by repo size, sqrt-scaled.</div>
+          </div>
+        </div>
+        <div class="flow-connector"><div class="line"></div></div>
+        <div class="flow-step">
+          <div class="flow-num" style="border-color:var(--green);color:var(--green)">3</div>
+          <div class="flow-content">
+            <div class="title">Classification</div>
+            <div class="desc">Functional changes score higher than syntax changes, which score higher than text-only changes.</div>
+          </div>
+        </div>
+        <div class="flow-connector"><div class="line"></div></div>
+        <div class="flow-step">
+          <div class="flow-num" style="border-color:var(--cyan);color:var(--cyan)">4</div>
+          <div class="flow-content">
+            <div class="title">Public API</div>
+            <div class="desc">Exported functions, pub methods, capitalized Go/Java names. Changes to public surface area are riskier.</div>
+          </div>
+        </div>
+        <div class="flow-connector"><div class="line"></div></div>
+        <div class="flow-step">
+          <div class="flow-num" style="border-color:var(--purple);color:var(--purple)">5</div>
+          <div class="flow-content">
+            <div class="title">Change type</div>
+            <div class="desc">Deletions and modifications score higher than additions. Cosmetic changes (structural hash unchanged) get an 80% discount.</div>
+          </div>
+        </div>
+      </div>
+
+      <p style="font-size:13px;color:var(--dim);margin-top:24px;line-height:1.7;">
+        Risk levels: <span style="color:var(--red);font-weight:600">Critical</span> (&gt;= 0.7) &middot; <span style="color:var(--orange);font-weight:600">High</span> (&gt;= 0.5) &middot; <span style="color:var(--yellow);font-weight:600">Medium</span> (&gt;= 0.3) &middot; <span style="color:var(--dim)">Low</span> (&lt; 0.3)
+      </p>
+    </section>
+
+    <!-- Languages -->
+    <section>
+      <h2>13 languages</h2>
+      <p class="section-desc">Entity extraction powered by <a href="https://github.com/Ataraxy-Labs/sem" style="color:var(--green)">sem-core</a> and tree-sitter. All parsers compiled into the binary.</p>
+      <table>
+        <thead>
+          <tr><th>Language</th><th>Extensions</th><th>Entities</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Rust</td><td>.rs</td><td>functions, structs, enums, impls, traits</td></tr>
+          <tr><td>TypeScript</td><td>.ts .tsx</td><td>functions, classes, interfaces, types, enums</td></tr>
+          <tr><td>JavaScript</td><td>.js .jsx .mjs .cjs</td><td>functions, classes, variables</td></tr>
+          <tr><td>Python</td><td>.py</td><td>functions, classes, decorators</td></tr>
+          <tr><td>Go</td><td>.go</td><td>functions, methods, types</td></tr>
+          <tr><td>Java</td><td>.java</td><td>classes, methods, interfaces, enums, fields</td></tr>
+          <tr><td>C</td><td>.c .h</td><td>functions, structs, enums, unions, typedefs</td></tr>
+          <tr><td>C++</td><td>.cpp .cc .cxx .hpp</td><td>functions, classes, structs, enums, namespaces</td></tr>
+          <tr><td>Ruby</td><td>.rb</td><td>methods, classes, modules</td></tr>
+          <tr><td>C#</td><td>.cs</td><td>methods, classes, interfaces, enums, structs</td></tr>
+          <tr><td>PHP</td><td>.php</td><td>functions, classes, methods, interfaces, traits, enums</td></tr>
+          <tr><td>Fortran</td><td>.f90 .f95 .f03 .f08</td><td>functions, subroutines, modules, programs</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Installation -->
+    <section>
+      <h2>Installation</h2>
+      <p class="section-desc">Rust toolchain required. Single binary, no runtime dependencies.</p>
+
+      <div class="cmd-doc">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">From source</span>
+        </div>
+        <div class="terminal" style="margin-top: 12px;">
+          <div class="terminal-body" style="padding: 16px 20px;">
+<pre><span class="cmd">$ cargo install --git https://github.com/Ataraxy-Labs/inspect inspect-cli</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="cmd-doc" style="margin-top: 24px;">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">Build from repo</span>
+        </div>
+        <div class="terminal" style="margin-top: 12px;">
+          <div class="terminal-body" style="padding: 16px 20px;">
+<pre><span class="cmd">$ git clone https://github.com/Ataraxy-Labs/inspect</span>
+<span class="cmd">$ cd inspect && cargo build --release</span>
+<span class="cmd">$ ./target/release/inspect diff HEAD~1</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>Built by <a href="https://ataraxy-labs.com">Ataraxy Labs</a></p>
+    </footer>
+  </div>
+</body>
+</html>

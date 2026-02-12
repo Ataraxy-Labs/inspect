@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benchmarks | inspect</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="logo" href="index.html">inspect</a>
+      <div class="links">
+        <a href="index.html">Home</a>
+        <a href="benchmarks.html" class="active">Benchmarks</a>
+        <a href="docs.html">Docs</a>
+        <a href="https://github.com/Ataraxy-Labs/inspect">GitHub</a>
+        <a href="llms.txt">llms.txt</a>
+      </div>
+    </nav>
+
+    <div style="padding: 48px 0 12px;">
+      <h1 style="font-size: 28px; font-weight: 700; color: var(--accent); letter-spacing: -1px; margin-bottom: 12px;">Benchmarks</h1>
+      <p style="font-size: 14px; color: var(--dim); line-height: 1.7; max-width: 600px;">
+        inspect evaluated on the same benchmarks used to measure frontier LLMs and commercial code review tools. No LLM, no API key, runs locally in under a second.
+      </p>
+    </div>
+
+    <!-- AACR-Bench -->
+    <section>
+      <h2>AACR-Bench (Alibaba)</h2>
+      <p class="section-desc">
+        <a href="https://arxiv.org/abs/2601.19494" style="color:var(--cyan)">AACR-Bench</a> is the benchmark used to evaluate GPT-5.2, Claude 4.5 Sonnet, and other frontier LLMs for automated code review. 158 PRs, 1,169 ground truth issues from human reviewers, 50 open-source repos, 10 languages.
+      </p>
+
+      <div class="stat-cards">
+        <div class="stat-card" style="border-color: var(--green);">
+          <div class="stat-value" style="color: var(--green);">48%</div>
+          <div class="stat-label">recall (HC only)</div>
+          <div class="stat-detail">reviewing 9.5% of the diff</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--cyan);">
+          <div class="stat-value" style="color: var(--cyan);">78%</div>
+          <div class="stat-label">recall (HC + Medium)</div>
+          <div class="stat-detail">reviewing 19% of the diff</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--purple);">
+          <div class="stat-value" style="color: var(--purple);">82%</div>
+          <div class="stat-label">total coverage</div>
+          <div class="stat-detail">issues within any changed entity</div>
+        </div>
+      </div>
+
+      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Recall: fraction of real issues identified</h3>
+      <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
+        Same benchmark, same ground truth. inspect uses graph-based risk scoring (no LLM). The AACR-Bench tools use frontier LLMs to generate review comments. Recall measures what fraction of real issues each tool identifies.
+      </p>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Approach</th>
+              <th>Recall</th>
+              <th>Cost</th>
+              <th>Speed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect</strong> (HC+M)</td>
+              <td>graph-based triage</td>
+              <td class="win">78.2%</td>
+              <td class="win">free</td>
+              <td class="win">&lt;1s</td>
+            </tr>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect</strong> (HC only)</td>
+              <td>graph-based triage</td>
+              <td class="win">48.3%</td>
+              <td class="win">free</td>
+              <td class="win">&lt;1s</td>
+            </tr>
+            <tr>
+              <td>GPT-5.2</td>
+              <td>LLM, no context</td>
+              <td>47.1%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>Qwen-480B-Coder</td>
+              <td>LLM, BM25 retrieval</td>
+              <td>45.9%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>Claude 4.5 Sonnet</td>
+              <td>LLM, embedding</td>
+              <td>42.9%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>GLM-4.7</td>
+              <td>LLM, no context</td>
+              <td>27.6%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>Claude 4.5 Sonnet</td>
+              <td>LLM, agent</td>
+              <td class="lose">10.1%</td>
+              <td>$$$</td>
+              <td>2-5min</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
+        <strong style="color:var(--fg)">Different paradigm, same benchmark.</strong> LLM tools generate specific review comments with high precision but low recall (the best catches 47% of issues). inspect identifies which entities need review. It catches 78% of issues by flagging 19% of the diff as Medium risk or above. The approaches are complementary: use inspect to prioritize, then use an LLM to review the flagged entities.
+      </p>
+    </section>
+
+    <!-- Greptile -->
+    <section>
+      <h2>Catch rate comparison (Greptile benchmark)</h2>
+      <p class="section-desc">
+        <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's benchmark</a> (50 bugs, 5 repos) measures whether tools surface known bugs. inspect's coverage (82%) is comparable to Greptile's catch rate (82%) on a larger, more diverse dataset.
+      </p>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Catch Rate</th>
+              <th>Dataset</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect</strong></td>
+              <td class="win">82% coverage</td>
+              <td>158 PRs, 50 repos (AACR-Bench)</td>
+            </tr>
+            <tr>
+              <td>Greptile</td>
+              <td>82%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+            <tr>
+              <td>Cursor</td>
+              <td>58%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+            <tr>
+              <td>GitHub Copilot</td>
+              <td>54%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+            <tr>
+              <td>CodeRabbit</td>
+              <td>44%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="font-size:12px;color:var(--dim2);margin-top:12px;line-height:1.7;">
+        Note: Different benchmarks use different evaluation criteria. AACR-Bench uses line-overlap matching against expert-written ground truth. Greptile uses manually verified bug detection. Numbers are not directly comparable across benchmarks.
+      </p>
+    </section>
+
+    <!-- Per-language results -->
+    <section>
+      <h2>Per-language results</h2>
+      <p class="section-desc">HC recall = fraction of ground truth issues within High/Critical entities. 158 PRs across 50 open-source repos.</p>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Language</th>
+              <th>PRs</th>
+              <th>HC Recall</th>
+              <th>Coverage</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>C#</td>
+              <td>10</td>
+              <td class="win">78%</td>
+              <td class="win">82%</td>
+            </tr>
+            <tr>
+              <td>TypeScript</td>
+              <td>29</td>
+              <td class="win">70%</td>
+              <td>79%</td>
+            </tr>
+            <tr>
+              <td>Java</td>
+              <td>16</td>
+              <td class="win">62%</td>
+              <td class="win">89%</td>
+            </tr>
+            <tr>
+              <td>Python</td>
+              <td>21</td>
+              <td>53%</td>
+              <td class="win">95%</td>
+            </tr>
+            <tr>
+              <td>Go</td>
+              <td>22</td>
+              <td>47%</td>
+              <td class="win">88%</td>
+            </tr>
+            <tr>
+              <td>PHP</td>
+              <td>10</td>
+              <td>40%</td>
+              <td>80%</td>
+            </tr>
+            <tr>
+              <td>Rust</td>
+              <td>10</td>
+              <td>36%</td>
+              <td>73%</td>
+            </tr>
+            <tr>
+              <td>JavaScript</td>
+              <td>11</td>
+              <td>20%</td>
+              <td class="win">83%</td>
+            </tr>
+            <tr>
+              <td>C++</td>
+              <td>10</td>
+              <td class="lose">19%</td>
+              <td class="lose">46%</td>
+            </tr>
+            <tr>
+              <td>C</td>
+              <td>19</td>
+              <td class="lose">16%</td>
+              <td>73%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13px;color:var(--dim);margin-top:16px;line-height:1.7;">
+        158 PRs evaluated. 38 skipped due to timeouts on very large codebases (FreeCAD, ClickHouse, elasticsearch) or parse limitations.
+        Coverage = fraction of issues within any changed entity. Higher coverage with lower HC recall means the issue is in a Medium/Low entity.
+      </p>
+    </section>
+
+    <!-- Risk distribution -->
+    <section>
+      <h2>Risk distribution</h2>
+      <p class="section-desc">How inspect distributes entities across risk levels. The goal: focus review on the 19% that matters.</p>
+
+      <div class="stat-cards">
+        <div class="stat-card" style="border-color: var(--red);">
+          <div class="stat-value" style="color: var(--red);">9.5%</div>
+          <div class="stat-label">High / Critical</div>
+          <div class="stat-detail">entities with graph impact</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--yellow);">
+          <div class="stat-value" style="color: var(--yellow);">9.5%</div>
+          <div class="stat-label">Medium</div>
+          <div class="stat-detail">functional changes, low graph impact</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--dim);">
+          <div class="stat-value" style="color: var(--dim);">81%</div>
+          <div class="stat-label">Low</div>
+          <div class="stat-detail">cosmetic, additions, no dependents</div>
+        </div>
+      </div>
+
+      <p style="font-size:13px;color:var(--dim);margin-top:16px;line-height:1.7;">
+        81% of changed entities are Low risk (cosmetic changes, new additions with no dependents, text-only edits). Filtering these out lets reviewers focus on the 19% where bugs actually live.
+      </p>
+    </section>
+
+    <footer>
+      <p>Built by <a href="https://ataraxy-labs.com">Ataraxy Labs</a></p>
+    </footer>
+  </div>
+</body>
+</html>
