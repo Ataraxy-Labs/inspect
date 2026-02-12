@@ -1,0 +1,191 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0a0a0a;
+  --fg: #e0e0e0;
+  --dim: #666;
+  --dim2: #444;
+  --border: #222;
+  --accent: #fff;
+  --green: #4ade80;
+  --yellow: #facc15;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --cyan: #22d3ee;
+  --purple: #a78bfa;
+  --orange: #fb923c;
+  --surface: #111;
+  --surface2: #141414;
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--fg); text-decoration-color: var(--dim); text-underline-offset: 3px; }
+a:hover { color: var(--accent); text-decoration-color: var(--accent); }
+
+.container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+/* Nav */
+nav {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 50;
+}
+nav .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: var(--accent); }
+nav .links { display: flex; gap: 20px; font-size: 13px; color: var(--dim); }
+nav .links a.active { color: var(--accent); text-decoration-color: var(--accent); }
+
+/* Install box */
+.install-box:hover { border-color: #444 !important; }
+.install-box .copied.show { opacity: 1 !important; }
+
+/* Terminal */
+.terminal {
+  background: #0d0d0d; border: 1px solid var(--border);
+  border-radius: 10px; margin: 24px 0; overflow: hidden;
+}
+.terminal-bar {
+  background: var(--surface2); padding: 10px 16px;
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.terminal-dot { width: 10px; height: 10px; border-radius: 50%; background: #333; }
+.terminal-title { font-size: 12px; color: var(--dim); margin-left: 8px; }
+.terminal-body {
+  padding: 20px 24px; font-size: 13px; line-height: 1.7; overflow-x: auto;
+}
+.terminal-body .cmd { color: var(--accent); }
+.terminal-body .g { color: var(--green); }
+.terminal-body .y { color: var(--yellow); }
+.terminal-body .r { color: var(--red); }
+.terminal-body .d { color: var(--dim2); }
+.terminal-body .b { color: var(--blue); }
+.terminal-body .c { color: var(--cyan); }
+.terminal-body .p { color: var(--purple); }
+.terminal-body .o { color: var(--orange); }
+.terminal-body .w { color: var(--accent); font-weight: 600; }
+
+/* Sections */
+section { padding: 60px 0; border-top: 1px solid var(--border); }
+section h2 {
+  font-size: 22px; font-weight: 600; color: var(--accent);
+  margin-bottom: 12px; letter-spacing: -0.5px;
+}
+section .section-desc {
+  font-size: 14px; color: var(--dim); margin-bottom: 32px; line-height: 1.7;
+}
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; padding: 10px 16px; color: var(--dim);
+  font-weight: 400; border-bottom: 1px solid var(--border);
+}
+td { padding: 10px 16px; border-bottom: 1px solid #181818; color: var(--fg); }
+tr:last-child td { border-bottom: none; }
+td.win { color: var(--green); font-weight: 600; }
+td.lose { color: var(--dim); }
+td.high { color: var(--red); font-weight: 600; }
+td.mid { color: var(--yellow); }
+
+/* Comparison table */
+.comparison-table { overflow-x: auto; }
+.comparison-table table { min-width: 640px; }
+
+/* Phase cards */
+.phase-cards { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+.phase-card {
+  padding: 20px; border: 1px solid var(--border); border-radius: 8px;
+  transition: border-color 0.2s;
+}
+.phase-card:hover { border-color: #444; }
+.phase-card h3 { font-size: 14px; color: var(--accent); margin-bottom: 8px; }
+.phase-card p { font-size: 12px; color: var(--dim); line-height: 1.6; }
+.phase-card .tag {
+  display: inline-block; font-size: 10px; padding: 2px 8px;
+  border-radius: 4px; margin-bottom: 10px; font-weight: 600;
+}
+
+/* Flow steps */
+.flow { display: flex; flex-direction: column; gap: 0; }
+.flow-step {
+  display: flex; align-items: flex-start; gap: 16px; padding: 12px 0;
+}
+.flow-num {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--surface);
+  border: 1px solid var(--border); display: flex; align-items: center;
+  justify-content: center; font-size: 12px; color: var(--dim);
+  flex-shrink: 0;
+}
+.flow-content { flex: 1; }
+.flow-content .title { font-size: 13px; color: var(--fg); font-weight: 600; }
+.flow-content .desc { font-size: 12px; color: var(--dim); margin-top: 2px; }
+.flow-connector {
+  width: 28px; display: flex; justify-content: center;
+}
+.flow-connector .line {
+  width: 1px; height: 12px; background: var(--border);
+}
+
+/* Risk level badges */
+.risk-badge {
+  display: inline-block; font-size: 10px; padding: 2px 8px;
+  border-radius: 4px; font-weight: 600;
+}
+
+/* Command docs */
+.cmd-doc { margin-bottom: 28px; }
+.cmd-doc-header {
+  display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px;
+}
+.cmd-doc-name {
+  font-size: 14px; font-weight: 600; color: var(--accent);
+  background: var(--surface); padding: 4px 10px; border-radius: 4px;
+}
+.cmd-doc-desc { font-size: 13px; color: var(--dim); }
+.cmd-doc-flags { margin-top: 8px; padding-left: 16px; }
+.cmd-doc-flags .flag {
+  font-size: 12px; color: var(--fg); margin-bottom: 2px;
+}
+.cmd-doc-flags .flag code {
+  color: var(--cyan); background: none; padding: 0;
+}
+.cmd-doc-flags .flag span { color: var(--dim); }
+
+/* Stat cards */
+.stat-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 32px; }
+.stat-card {
+  padding: 20px; border: 1px solid var(--border); border-radius: 8px;
+  text-align: center;
+}
+.stat-card .stat-value {
+  font-size: 32px; font-weight: 700; color: var(--accent);
+  letter-spacing: -1px;
+}
+.stat-card .stat-label { font-size: 12px; color: var(--dim); margin-top: 4px; }
+.stat-card .stat-detail { font-size: 11px; color: var(--dim2); margin-top: 2px; }
+
+/* Footer */
+footer {
+  padding: 40px 0; border-top: 1px solid var(--border);
+  text-align: center; font-size: 12px; color: var(--dim);
+}
+
+@media (max-width: 640px) {
+  .phase-cards { grid-template-columns: 1fr; }
+  .stat-cards { grid-template-columns: 1fr; }
+  nav .links { gap: 12px; font-size: 12px; }
+}
