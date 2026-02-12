@@ -36,12 +36,12 @@
       <div class="stat-cards">
         <div class="stat-card" style="border-color: var(--green);">
           <div class="stat-value" style="color: var(--green);">48%</div>
-          <div class="stat-label">recall (HC only)</div>
+          <div class="stat-label">recall (High/Critical only)</div>
           <div class="stat-detail">reviewing 9.5% of the diff</div>
         </div>
         <div class="stat-card" style="border-color: var(--cyan);">
           <div class="stat-value" style="color: var(--cyan);">78%</div>
-          <div class="stat-label">recall (HC + Medium)</div>
+          <div class="stat-label">recall (High/Critical + Medium)</div>
           <div class="stat-detail">reviewing 19% of the diff</div>
         </div>
         <div class="stat-card" style="border-color: var(--purple);">
@@ -69,14 +69,14 @@
           </thead>
           <tbody>
             <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> (HC+M)</td>
+              <td><strong style="color:var(--accent)">inspect</strong> (High/Critical + Medium)</td>
               <td>graph-based triage</td>
               <td class="win">78.2%</td>
               <td class="win">free</td>
               <td class="win">&lt;1s</td>
             </tr>
             <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> (HC only)</td>
+              <td><strong style="color:var(--accent)">inspect</strong> (High/Critical only)</td>
               <td>graph-based triage</td>
               <td class="win">48.3%</td>
               <td class="win">free</td>
@@ -125,7 +125,7 @@
         <h3>Recall comparison (visual)</h3>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> (HC+M)</span>
+            <span class="name"><strong style="color:var(--accent)">inspect</strong> (High/Critical + Medium)</span>
             <span class="value" style="color:var(--green)">78.2%</span>
           </div>
           <div class="bench-bar-track">
@@ -134,7 +134,7 @@
         </div>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> (HC only)</span>
+            <span class="name"><strong style="color:var(--accent)">inspect</strong> (High/Critical only)</span>
             <span class="value" style="color:var(--green)">48.3%</span>
           </div>
           <div class="bench-bar-track">
@@ -195,12 +195,12 @@
       <div class="stat-cards">
         <div class="stat-card" style="border-color: var(--green);">
           <div class="stat-value" style="color: var(--green);">73%</div>
-          <div class="stat-label">HC recall</div>
+          <div class="stat-label">High/Critical recall</div>
           <div class="stat-detail">20 PRs, 52 golden comments</div>
         </div>
         <div class="stat-card" style="border-color: var(--cyan);">
           <div class="stat-value" style="color: var(--cyan);">100%</div>
-          <div class="stat-label">HCM recall</div>
+          <div class="stat-label">High/Critical + Medium recall</div>
           <div class="stat-detail">every bug in a flagged entity</div>
         </div>
       </div>
@@ -214,8 +214,8 @@
               <th>Language</th>
               <th>PRs</th>
               <th>Golden Comments</th>
-              <th>HC Recall</th>
-              <th>HCM Recall</th>
+              <th>High/Critical Recall</th>
+              <th>High/Critical + Medium Recall</th>
             </tr>
           </thead>
           <tbody>
@@ -258,7 +258,7 @@
           </thead>
           <tbody>
             <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> (HC)</td>
+              <td><strong style="color:var(--accent)">inspect</strong> (High/Critical)</td>
               <td>graph-based triage</td>
               <td class="win">73%</td>
               <td class="mid">n/a (triage)</td>
@@ -317,7 +317,7 @@
         <h3>Recall comparison (visual)</h3>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> (HC)</span>
+            <span class="name"><strong style="color:var(--accent)">inspect</strong> (High/Critical)</span>
             <span class="value" style="color:var(--green)">73%</span>
           </div>
           <div class="bench-bar-track">
@@ -380,7 +380,7 @@
     <!-- Per-language results -->
     <section>
       <h2>Per-language results</h2>
-      <p class="section-desc">HC recall = fraction of ground truth issues within High/Critical entities. 158 PRs across 50 open-source repos.</p>
+      <p class="section-desc">High/Critical recall = fraction of ground truth issues within High or Critical risk entities. 158 PRs across 50 open-source repos.</p>
 
       <div class="comparison-table">
         <table>
@@ -388,7 +388,7 @@
             <tr>
               <th>Language</th>
               <th>PRs</th>
-              <th>HC Recall</th>
+              <th>High/Critical Recall</th>
               <th>Coverage</th>
             </tr>
           </thead>
@@ -457,7 +457,7 @@
         </table>
       </div>
       <div class="bench-group" style="margin-top: 32px;">
-        <h3>HC recall by language (visual)</h3>
+        <h3>High/Critical recall by language (visual)</h3>
         <div class="bench-row">
           <div class="bench-label"><span class="name">C#</span><span class="value" style="color:var(--green)">78%</span></div>
           <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="78">78%</div></div>
@@ -502,7 +502,7 @@
 
       <p style="font-size:13px;color:var(--dim);margin-top:16px;line-height:1.7;">
         158 PRs evaluated. 38 skipped due to timeouts on very large codebases (FreeCAD, ClickHouse, elasticsearch) or parse limitations.
-        Coverage = fraction of issues within any changed entity. Higher coverage with lower HC recall means the issue is in a Medium/Low entity.
+        Coverage = fraction of issues within any changed entity. Higher coverage with lower High/Critical recall means the issue is in a Medium or Low risk entity.
       </p>
     </section>
 
@@ -534,7 +534,7 @@
         <div class="risk-segments" id="risk-segments">
           <div class="risk-segment" style="flex-grow: 9.5; background: var(--red);">
             <span class="seg-tooltip">High/Critical: 9.5% of entities, 48% of bugs</span>
-            HC
+            H/C
           </div>
           <div class="risk-segment" style="flex-grow: 9.5; background: var(--yellow);">
             <span class="seg-tooltip">Medium: 9.5% of entities, 30% of bugs</span>
