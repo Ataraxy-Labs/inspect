@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use sem_core::model::change::SemanticChange;
 
 use crate::types::ChangeClassification;
@@ -26,9 +28,9 @@ pub fn classify_change(change: &SemanticChange) -> ChangeClassification {
     let mut has_syntax = false;
     let mut has_functional = false;
 
-    // Build sets of non-empty trimmed lines for diffing
-    let before_set: Vec<&str> = before_lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
-    let after_set: Vec<&str> = after_lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    // Build hash sets of non-empty trimmed lines for O(1) lookup
+    let before_set: HashSet<&str> = before_lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let after_set: HashSet<&str> = after_lines.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
 
     // Lines only in before (removed)
     for line in &before_set {

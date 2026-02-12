@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use sem_core::git::bridge::GitBridge;
@@ -15,6 +15,9 @@ use crate::untangle::untangle;
 
 /// Analyze a diff scope and produce a ReviewResult.
 pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, AnalyzeError> {
+    use std::time::Instant;
+
+    let total_start = Instant::now();
     let git = GitBridge::open(repo_path).map_err(|e| AnalyzeError::Git(e.to_string()))?;
     let registry = create_default_registry();
 
@@ -27,36 +30,45 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         return Ok(empty_result());
     }
 
-    // Compute entity-level diff
+    // Phase 1: Compute entity-level diff
+    let diff_start = Instant::now();
     let diff = compute_semantic_diff(&file_changes, &registry, None, None);
+    let diff_ms = diff_start.elapsed().as_millis() as u64;
 
     if diff.changes.is_empty() {
         return Ok(empty_result());
     }
 
-    // Build entity graph from ALL source files in the repo (not just changed ones).
-    // This ensures blast_radius and dependent_count reflect the full codebase.
+    // Phase 2: List all source files in the repo
+    let list_start = Instant::now();
     let all_files = list_source_files(repo_path)?;
+    let file_count = all_files.len();
+    let list_files_ms = list_start.elapsed().as_millis() as u64;
 
-    let changed_entity_ids: Vec<&str> = diff.changes.iter().map(|c| c.entity_id.as_str()).collect();
+    let changed_entity_ids: HashSet<&str> = diff.changes.iter().map(|c| c.entity_id.as_str()).collect();
 
+    // Phase 3: Build entity graph from ALL source files (parallel via rayon)
+    let graph_start = Instant::now();
     let graph = EntityGraph::build(git.repo_root(), &all_files, &registry);
+    let graph_build_ms = graph_start.elapsed().as_millis() as u64;
     let total_graph_entities = graph.entities.len();
 
-    // Build entity reviews
+    // Phase 4: Score, classify, untangle
+    let scoring_start = Instant::now();
+
     let mut reviews: Vec<EntityReview> = Vec::new();
     let mut dependency_edges: Vec<(String, String)> = Vec::new();
 
     for change in &diff.changes {
         let dependents = graph.get_dependents(&change.entity_id);
         let dependencies = graph.get_dependencies(&change.entity_id);
-        let impact = graph.impact_analysis(&change.entity_id);
+        // Use capped impact count to avoid full BFS on hub entities
+        let blast_radius = graph.impact_count(&change.entity_id, 10_000);
 
         let classification = classify_change(change);
         let after_content = change.after_content.as_deref();
         let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content);
 
-        // Look up line numbers from the entity graph (after-state positions)
         let (start_line, end_line) = graph
             .entities
             .get(&change.entity_id)
@@ -72,7 +84,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             classification,
             risk_score: 0.0,
             risk_level: RiskLevel::Low,
-            blast_radius: impact.len(),
+            blast_radius,
             dependent_count: dependents.len(),
             dependency_count: dependencies.len(),
             is_public_api: pub_api,
@@ -85,14 +97,13 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         review.risk_score = compute_risk_score(&review, total_graph_entities);
         review.risk_level = score_to_level(review.risk_score);
 
-        // Collect dependency edges between changed entities for untangling
         for dep in &dependencies {
-            if changed_entity_ids.contains(&dep.id.as_str()) {
+            if changed_entity_ids.contains(dep.id.as_str()) {
                 dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
             }
         }
         for dep in &dependents {
-            if changed_entity_ids.contains(&dep.id.as_str()) {
+            if changed_entity_ids.contains(dep.id.as_str()) {
                 dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
             }
         }
@@ -100,13 +111,10 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         reviews.push(review);
     }
 
-    // Sort by risk (highest first)
     reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
-    // Untangle into groups
     let groups = untangle(&reviews, &dependency_edges);
 
-    // Assign group IDs back to reviews
     let entity_to_group: HashMap<&str, usize> = groups
         .iter()
         .flat_map(|g| g.entity_ids.iter().map(move |id| (id.as_str(), g.id)))
@@ -118,13 +126,26 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
-    // Compute stats
+    let scoring_ms = scoring_start.elapsed().as_millis() as u64;
+    let total_ms = total_start.elapsed().as_millis() as u64;
+
     let stats = compute_stats(&reviews);
+
+    let timing = Timing {
+        diff_ms,
+        list_files_ms,
+        file_count,
+        graph_build_ms,
+        graph_entity_count: total_graph_entities,
+        scoring_ms,
+        total_ms,
+    };
 
     Ok(ReviewResult {
         entity_reviews: reviews,
         groups,
         stats,
+        timing,
         changes: diff.changes,
     })
 }
@@ -243,6 +264,7 @@ fn empty_result() -> ReviewResult {
                 renamed: 0,
             },
         },
+        timing: Timing::default(),
         changes: vec![],
     }
 }

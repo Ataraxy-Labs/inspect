@@ -92,5 +92,21 @@ pub fn print(result: &ReviewResult, show_context: bool) {
         }
     }
 
+    // Timing
+    let t = &result.timing;
+    if t.total_ms > 0 {
+        println!(
+            "\n{}  {}ms total ({} files, {} entities)",
+            "timing".dimmed(),
+            t.total_ms,
+            t.file_count,
+            t.graph_entity_count,
+        );
+        println!(
+            "  diff: {}ms  graph: {}ms  scoring: {}ms",
+            t.diff_ms, t.graph_build_ms, t.scoring_ms,
+        );
+    }
+
     println!();
 }

@@ -53,7 +53,16 @@ Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 - Evaluated on Augment's expanded golden comments (not Greptile's original 1-per-PR)
 
 ### Common across benchmarks
-- No LLM, no API key, runs locally in under a second
+- No LLM, no API key, runs locally
+
+## Performance
+
+Parallel entity extraction via rayon, zero-allocation BFS, capped graph traversal.
+
+- Small repos (<100 files): <50ms
+- Medium repos (~1k entities): <100ms
+- Large repos (16k files, 100k entities, e.g. Sentry): ~4 seconds
+- Reports per-phase timing breakdown (diff, graph build, scoring)
 
 ## Change Classification (ConGra)
 

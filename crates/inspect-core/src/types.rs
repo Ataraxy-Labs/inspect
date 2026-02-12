@@ -118,12 +118,32 @@ pub struct ChangeTypeBreakdown {
     pub renamed: usize,
 }
 
+/// Timing breakdown for the analysis pipeline.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Timing {
+    /// Time to compute entity-level diff (ms)
+    pub diff_ms: u64,
+    /// Time to list source files (ms)
+    pub list_files_ms: u64,
+    /// Number of source files in the repo
+    pub file_count: usize,
+    /// Time to build the entity graph (ms)
+    pub graph_build_ms: u64,
+    /// Number of entities in the graph
+    pub graph_entity_count: usize,
+    /// Time for scoring, classification, untangling (ms)
+    pub scoring_ms: u64,
+    /// Total wall-clock time (ms)
+    pub total_ms: u64,
+}
+
 /// Complete review result for a set of changes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewResult {
     pub entity_reviews: Vec<EntityReview>,
     pub groups: Vec<ChangeGroup>,
     pub stats: ReviewStats,
+    pub timing: Timing,
     /// The underlying semantic changes (for formatters that want raw data)
     #[serde(skip)]
     pub changes: Vec<SemanticChange>,
