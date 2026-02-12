@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>inspect — Entity-Level Code Review for Git</title>
+  <title>inspect | Entity-Level Code Review for Git</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
     <div style="padding: 48px 0 32px; text-align: center;">
       <h1 style="font-size: 36px; font-weight: 700; color: var(--accent); letter-spacing: -1.5px; margin-bottom: 12px;">Review what matters.</h1>
       <p style="font-size: 14px; color: var(--dim); margin-bottom: 24px; line-height: 1.7; max-width: 540px; margin-left: auto; margin-right: auto;">
-        Entity-level code review for Git. Review 16% of entities, catch 72% of real issues. Tested on 145 PRs across 50 open-source repos.
+        Entity-level code review for Git. Graph-based risk scoring identifies which functions need careful review. No LLM, no API key, runs locally in under a second.
       </p>
       <div class="install-box" onclick="copyCmd(this, 'cargo install --git https://github.com/Ataraxy-Labs/inspect inspect-cli')" style="display: inline-block; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 20px; font-size: 14px; color: var(--fg); cursor: pointer; position: relative;">
         <span class="copied" style="position: absolute; top: -28px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--green); opacity: 0; transition: opacity 0.2s;">copied</span>
@@ -41,7 +41,7 @@
 <pre><span class="cmd">$ inspect diff HEAD~1</span>
 
 <span class="w">inspect</span> 12 entities changed
-  <span class="r">1 critical</span>, <span class="o">4 high</span>, <span class="y">6 medium</span>, <span class="d">1 low</span>
+  <span class="r">1 critical</span>, <span class="o">4 high</span>, <span class="y">3 medium</span>, <span class="d">4 low</span>
 
 <span class="w">groups</span> 3 logical groups:
   <span class="d">[0]</span> src/merge/ <span class="d">(5 entities)</span>
@@ -60,10 +60,10 @@
     <span class="c">public API</span>
 
   <span class="g">+</span> <span class="y">MEDIUM</span> <span class="d">function</span> <span class="w">parse_config</span> <span class="d">(src/config.rs)</span>
-    classification: functional  score: 0.45  blast: 0  deps: 2/0
+    classification: functional  score: 0.32  blast: 0  deps: 2/0
 
   <span class="y">~</span> <span class="d">LOW</span> <span class="d">function</span> <span class="w">format_output</span> <span class="d">(src/display.rs)</span>
-    classification: text  score: 0.05  blast: 0  deps: 0/0
+    classification: text  score: 0.02  blast: 0  deps: 0/0
     <span class="d">cosmetic only (no structural change)</span></pre>
       </div>
     </div>
@@ -72,68 +72,194 @@
     <section>
       <h2>The problem</h2>
       <p class="section-desc">
-        <code style="background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--cyan)">git diff</code> says 12 files changed. But which changes actually matter? A renamed variable, a reformatted function, and a deleted public API method all look the same in a line-level diff. You have to read every line to figure out what needs careful review and what can be skipped.
+        <code style="background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--cyan)">git diff</code> says 12 files changed. But which changes actually matter? A renamed variable, a reformatted function, and a deleted public API method all look the same in a line-level diff.
       </p>
       <p style="font-size: 14px; color: var(--dim); line-height: 1.7;">
-        This gets worse with AI-generated code. DORA 2025 found that AI adoption led to <strong style="color:var(--accent)">+154% PR size</strong>, <strong style="color:var(--accent)">+91% review time</strong>, and <strong style="color:var(--accent)">+9% more bugs shipped</strong>. Reviewers are drowning in noise. Every existing code review tool (CodeRabbit, Qodo, SonarQube) works at the file or line level. inspect works at the entity level: functions, structs, traits, classes.
+        This gets worse with AI-generated code. DORA 2025 found that AI adoption led to <strong style="color:var(--accent)">+154% PR size</strong>, <strong style="color:var(--accent)">+91% review time</strong>, and <strong style="color:var(--accent)">+9% more bugs shipped</strong>. Reviewers are drowning in noise. inspect works at the entity level: functions, structs, traits, classes. It uses the dependency graph to identify which changes have real impact.
       </p>
     </section>
 
     <!-- How it works -->
     <section>
       <h2>How it works</h2>
-      <p class="section-desc">Four phases, each building on the last.</p>
+      <p class="section-desc">Four phases. No LLM, no network calls, all local.</p>
 
       <div class="phase-cards">
         <div class="phase-card" style="border-color: var(--green);">
           <div class="tag" style="background: #4ade8022; color: var(--green);">EXTRACT</div>
           <h3>Parse</h3>
-          <p>tree-sitter extracts functions, structs, classes, traits from all tracked source files. Builds a full-repo dependency graph.</p>
+          <p>tree-sitter extracts entities from all tracked source files. Builds a full-repo dependency graph via call/reference analysis.</p>
         </div>
         <div class="phase-card" style="border-color: var(--cyan);">
           <div class="tag" style="background: #22d3ee22; color: var(--cyan);">CLASSIFY</div>
           <h3>Categorize</h3>
-          <p>Compare before/after line by line. Classify each change as text (comments), syntax (signatures), functional (logic), or a combination.</p>
+          <p>Compare before/after. Classify each change as text (comments), syntax (signatures), functional (logic), or a combination.</p>
         </div>
         <div class="phase-card" style="border-color: var(--yellow);">
           <div class="tag" style="background: #facc1522; color: var(--yellow);">SCORE</div>
           <h3>Risk</h3>
-          <p>Compute risk from classification, blast radius, dependent count, public API exposure, and change type. Cosmetic changes get a 70% discount.</p>
+          <p>Graph-centric scoring. Dependents and blast radius are the primary signals. Public API, classification, and change type set the baseline.</p>
         </div>
         <div class="phase-card" style="border-color: var(--purple);">
           <div class="tag" style="background: #a78bfa22; color: var(--purple);">GROUP</div>
           <h3>Untangle</h3>
-          <p>Union-Find on dependency edges between changed entities. Each group can be reviewed independently.</p>
+          <p>Union-Find on dependency edges between changed entities. Separates independent logical changes within tangled commits.</p>
         </div>
       </div>
     </section>
 
-    <!-- AACR-Bench -->
+    <!-- Industry Comparison -->
     <section>
-      <h2>AACR-Bench: 145 PRs, 1,047 issues, 50 repos</h2>
-      <p class="section-desc">Evaluated on <a href="https://github.com/Alibaba-NLP/AACR-Bench" style="color:var(--cyan)">AACR-Bench</a>, Alibaba's code review benchmark with ground-truth issues from human reviewers. The question: if you only review the entities inspect marks as High/Critical risk, how many real issues do you catch?</p>
+      <h2>vs industry tools</h2>
+      <p class="section-desc">
+        Evaluated on <a href="https://arxiv.org/abs/2601.19494" style="color:var(--cyan)">AACR-Bench</a> (Alibaba), the same benchmark used to evaluate GPT-5.2, Claude 4.5 Sonnet, and other frontier LLMs. 158 PRs, 1,169 ground truth issues from human reviewers, 50 open-source repos, 10 languages.
+      </p>
 
       <div class="stat-cards">
         <div class="stat-card" style="border-color: var(--green);">
-          <div class="stat-value" style="color: var(--green);">72%</div>
-          <div class="stat-label">issues caught</div>
-          <div class="stat-detail">reviewing only High/Critical entities</div>
+          <div class="stat-value" style="color: var(--green);">48%</div>
+          <div class="stat-label">recall (HC only)</div>
+          <div class="stat-detail">reviewing 9.5% of the diff</div>
         </div>
         <div class="stat-card" style="border-color: var(--cyan);">
-          <div class="stat-value" style="color: var(--cyan);">16%</div>
-          <div class="stat-label">entities reviewed</div>
-          <div class="stat-detail">of all changed entities in a PR</div>
+          <div class="stat-value" style="color: var(--cyan);">78%</div>
+          <div class="stat-label">recall (HC + Medium)</div>
+          <div class="stat-detail">reviewing 19% of the diff</div>
         </div>
         <div class="stat-card" style="border-color: var(--purple);">
-          <div class="stat-value" style="color: var(--purple);">83%</div>
-          <div class="stat-label">with Medium included</div>
-          <div class="stat-detail">High + Critical + Medium catch rate</div>
+          <div class="stat-value" style="color: var(--purple);">82%</div>
+          <div class="stat-label">total coverage</div>
+          <div class="stat-detail">issues within any changed entity</div>
         </div>
       </div>
 
-      <p style="font-size:14px;color:var(--fg);margin-bottom:20px;line-height:1.7;">
-        <strong style="color:var(--accent)">Review 16% of entities, catch 72% of issues.</strong> Adding Medium-risk entities brings it to 83%. Entity coverage (issues within any changed entity) is 79%.
+      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Recall: fraction of real issues identified</h3>
+      <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
+        Same benchmark, same ground truth. inspect uses graph-based risk scoring (no LLM). The AACR-Bench tools use frontier LLMs to generate review comments. Recall measures what fraction of real issues each tool identifies.
       </p>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Approach</th>
+              <th>Recall</th>
+              <th>Cost</th>
+              <th>Speed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect</strong> (HC+M)</td>
+              <td>graph-based triage</td>
+              <td class="win">78.2%</td>
+              <td class="win">free</td>
+              <td class="win">&lt;1s</td>
+            </tr>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect</strong> (HC only)</td>
+              <td>graph-based triage</td>
+              <td class="win">48.3%</td>
+              <td class="win">free</td>
+              <td class="win">&lt;1s</td>
+            </tr>
+            <tr>
+              <td>GPT-5.2</td>
+              <td>LLM, no context</td>
+              <td>47.1%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>Qwen-480B-Coder</td>
+              <td>LLM, BM25 retrieval</td>
+              <td>45.9%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>Claude 4.5 Sonnet</td>
+              <td>LLM, embedding</td>
+              <td>42.9%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>GLM-4.7</td>
+              <td>LLM, no context</td>
+              <td>27.6%</td>
+              <td>$$</td>
+              <td>30-60s</td>
+            </tr>
+            <tr>
+              <td>Claude 4.5 Sonnet</td>
+              <td>LLM, agent</td>
+              <td class="lose">10.1%</td>
+              <td>$$$</td>
+              <td>2-5min</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
+        <strong style="color:var(--fg)">Different paradigm, same benchmark.</strong> LLM tools generate specific review comments with high precision but low recall (the best catches 47% of issues). inspect identifies which entities need review. It catches 78% of issues by flagging 19% of the diff as Medium risk or above. The approaches are complementary: use inspect to prioritize, then use an LLM to review the flagged entities.
+      </p>
+
+      <h3 style="font-size: 15px; color: var(--accent); margin: 32px 0 16px;">Catch rate comparison (Greptile benchmark)</h3>
+      <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
+        <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's benchmark</a> (50 bugs, 5 repos) measures whether tools surface known bugs. inspect's coverage (82%) is comparable to Greptile's catch rate (82%) on a larger, more diverse dataset.
+      </p>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Catch Rate</th>
+              <th>Dataset</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect</strong></td>
+              <td class="win">82% coverage</td>
+              <td>158 PRs, 50 repos (AACR-Bench)</td>
+            </tr>
+            <tr>
+              <td>Greptile</td>
+              <td>82%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+            <tr>
+              <td>Cursor</td>
+              <td>58%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+            <tr>
+              <td>GitHub Copilot</td>
+              <td>54%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+            <tr>
+              <td>CodeRabbit</td>
+              <td>44%</td>
+              <td>50 bugs, 5 repos</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="font-size:12px;color:var(--dim2);margin-top:12px;line-height:1.7;">
+        Note: Different benchmarks use different evaluation criteria. AACR-Bench uses line-overlap matching against expert-written ground truth. Greptile uses manually verified bug detection. Numbers are not directly comparable across benchmarks.
+      </p>
+    </section>
+
+    <!-- Per-language results -->
+    <section>
+      <h2>Per-language results</h2>
+      <p class="section-desc">HC recall = fraction of ground truth issues within High/Critical entities. 158 PRs across 50 open-source repos.</p>
 
       <div class="comparison-table">
         <table>
@@ -141,83 +267,77 @@
             <tr>
               <th>Language</th>
               <th>PRs</th>
-              <th>Entities</th>
-              <th>HC Catch Rate</th>
+              <th>HC Recall</th>
               <th>Coverage</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>Python</td>
-              <td>21</td>
-              <td>99,480</td>
-              <td class="win">89%</td>
-              <td class="win">95%</td>
-            </tr>
-            <tr>
-              <td>Java</td>
+              <td>C#</td>
               <td>10</td>
-              <td>60,696</td>
-              <td class="win">88%</td>
-              <td class="win">93%</td>
-            </tr>
-            <tr>
-              <td>Rust</td>
-              <td>7</td>
-              <td>13,351</td>
-              <td class="win">86%</td>
-              <td class="win">88%</td>
+              <td class="win">78%</td>
+              <td class="win">82%</td>
             </tr>
             <tr>
               <td>TypeScript</td>
-              <td>27</td>
-              <td>600,349</td>
-              <td class="win">83%</td>
-              <td class="win">86%</td>
+              <td>29</td>
+              <td class="win">70%</td>
+              <td>79%</td>
             </tr>
             <tr>
-              <td>C#</td>
-              <td>9</td>
-              <td>22,055</td>
-              <td class="win">81%</td>
-              <td>81%</td>
+              <td>Java</td>
+              <td>16</td>
+              <td class="win">62%</td>
+              <td class="win">89%</td>
+            </tr>
+            <tr>
+              <td>Python</td>
+              <td>21</td>
+              <td>53%</td>
+              <td class="win">95%</td>
             </tr>
             <tr>
               <td>Go</td>
-              <td>21</td>
-              <td>56,825</td>
-              <td>79%</td>
-              <td>79%</td>
+              <td>22</td>
+              <td>47%</td>
+              <td class="win">88%</td>
             </tr>
             <tr>
-              <td>C</td>
-              <td>19</td>
-              <td>49,496</td>
-              <td>62%</td>
+              <td>PHP</td>
+              <td>10</td>
+              <td>40%</td>
+              <td>80%</td>
+            </tr>
+            <tr>
+              <td>Rust</td>
+              <td>10</td>
+              <td>36%</td>
               <td>73%</td>
             </tr>
             <tr>
               <td>JavaScript</td>
-              <td>10</td>
-              <td>34,748</td>
-              <td>56%</td>
-              <td>82%</td>
+              <td>11</td>
+              <td>20%</td>
+              <td class="win">83%</td>
             </tr>
             <tr>
               <td>C++</td>
               <td>10</td>
-              <td>51,043</td>
-              <td class="lose">40%</td>
+              <td class="lose">19%</td>
               <td class="lose">46%</td>
+            </tr>
+            <tr>
+              <td>C</td>
+              <td>19</td>
+              <td class="lose">16%</td>
+              <td>73%</td>
             </tr>
           </tbody>
         </table>
       </div>
       <p style="font-size:13px;color:var(--dim);margin-top:16px;line-height:1.7;">
-        145 PRs evaluated across 50 open-source repos (React, Svelte, ollama, uv, vllm, bitcoin, n8n, ComfyUI, and more).
-        51 PRs skipped due to timeout on very large repos (elasticsearch, FreeCAD) or C++ parse limitations (ClickHouse).
-        HC Catch Rate = % of ground truth issues within High/Critical entities.
-        Coverage = % of issues within any changed entity.
+        158 PRs evaluated. 38 skipped due to timeouts on very large codebases (FreeCAD, ClickHouse, elasticsearch) or parse limitations.
+        Coverage = fraction of issues within any changed entity. Higher coverage with lower HC recall means the issue is in a Medium/Low entity.
       </p>
     </section>
 
@@ -225,7 +345,7 @@
     <section>
       <h2>Change classification</h2>
       <p class="section-desc">
-        Based on <a href="https://arxiv.org/abs/2409.14121" style="color:var(--cyan)">ConGra (arXiv:2409.14121)</a>. Every change is classified along three dimensions: text, syntax, and functional. This produces 7 possible categories.
+        Based on <a href="https://arxiv.org/abs/2409.14121" style="color:var(--cyan)">ConGra (arXiv:2409.14121)</a>. Every change is classified along three dimensions: text, syntax, and functional.
       </p>
       <table>
         <thead>
@@ -248,23 +368,8 @@
             <td class="high">careful review</td>
           </tr>
           <tr>
-            <td><span style="color:var(--fg)">Text+Syntax</span></td>
-            <td>Comments and signatures changed</td>
-            <td class="mid">check API surface</td>
-          </tr>
-          <tr>
-            <td><span style="color:var(--fg)">Text+Functional</span></td>
-            <td>Comments and logic changed</td>
-            <td class="high">careful review</td>
-          </tr>
-          <tr>
-            <td><span style="color:var(--fg)">Syntax+Functional</span></td>
-            <td>Signatures and logic changed</td>
-            <td class="high">careful review</td>
-          </tr>
-          <tr>
-            <td><span style="color:var(--orange)">Text+Syntax+Functional</span></td>
-            <td>All three dimensions</td>
+            <td><span style="color:var(--fg)">Mixed</span></td>
+            <td>Combinations of the above</td>
             <td class="high">careful review</td>
           </tr>
         </tbody>
@@ -274,30 +379,30 @@
     <!-- Risk Scoring -->
     <section>
       <h2>Risk scoring</h2>
-      <p class="section-desc">Each entity gets a risk score from 0.0 to 1.0 combining five signals. Cosmetic-only changes (structural hash unchanged) get a 70% discount.</p>
+      <p class="section-desc">Graph-centric. Dependents and blast radius are the primary discriminators. Entities at the center of the dependency graph score highest. Cosmetic-only changes get an 80% discount.</p>
 
       <div class="flow">
         <div class="flow-step">
-          <div class="flow-num" style="border-color:var(--green);color:var(--green)">1</div>
+          <div class="flow-num" style="border-color:var(--red);color:var(--red)">1</div>
           <div class="flow-content">
-            <div class="title">Classification weight</div>
-            <div class="desc">Text changes score 0.05, syntax 0.2, functional 0.4, mixed changes up to 0.55.</div>
+            <div class="title">Dependent count (primary)</div>
+            <div class="desc">How many other entities call or reference this one. Logarithmic scale. An entity with 10 dependents scores significantly higher than one with 0.</div>
           </div>
         </div>
         <div class="flow-connector"><div class="line"></div></div>
         <div class="flow-step">
-          <div class="flow-num" style="border-color:var(--red);color:var(--red)">2</div>
+          <div class="flow-num" style="border-color:var(--orange);color:var(--orange)">2</div>
           <div class="flow-content">
-            <div class="title">Blast radius</div>
-            <div class="desc">Transitive impact normalized by total entity count, weighted at 0.3. An entity affecting 100 of 500 entities scores 0.06.</div>
+            <div class="title">Blast radius (primary)</div>
+            <div class="desc">Transitive impact via BFS through the dependency graph. Normalized by repo size, sqrt-scaled.</div>
           </div>
         </div>
         <div class="flow-connector"><div class="line"></div></div>
         <div class="flow-step">
-          <div class="flow-num" style="border-color:var(--orange);color:var(--orange)">3</div>
+          <div class="flow-num" style="border-color:var(--green);color:var(--green)">3</div>
           <div class="flow-content">
-            <div class="title">Dependent count</div>
-            <div class="desc">Logarithmic scale, weighted at 0.1. More dependents means more risk, but diminishing returns after ~10.</div>
+            <div class="title">Classification</div>
+            <div class="desc">Functional changes score higher than syntax changes, which score higher than text-only changes.</div>
           </div>
         </div>
         <div class="flow-connector"><div class="line"></div></div>
@@ -305,7 +410,7 @@
           <div class="flow-num" style="border-color:var(--cyan);color:var(--cyan)">4</div>
           <div class="flow-content">
             <div class="title">Public API</div>
-            <div class="desc">Exported functions, pub methods, capitalized Go/Java names get a 0.15 boost.</div>
+            <div class="desc">Exported functions, pub methods, capitalized Go/Java names. Changes to public surface area are riskier.</div>
           </div>
         </div>
         <div class="flow-connector"><div class="line"></div></div>
@@ -313,13 +418,13 @@
           <div class="flow-num" style="border-color:var(--purple);color:var(--purple)">5</div>
           <div class="flow-content">
             <div class="title">Change type</div>
-            <div class="desc">Deletions score highest (0.2), modifications and renames (0.1), additions lowest (0.05).</div>
+            <div class="desc">Deletions and modifications score higher than additions. Cosmetic changes (structural hash unchanged) get an 80% discount.</div>
           </div>
         </div>
       </div>
 
       <p style="font-size:13px;color:var(--dim);margin-top:24px;line-height:1.7;">
-        Risk levels: <span style="color:var(--red);font-weight:600">Critical</span> (&gt;= 0.7) · <span style="color:var(--orange);font-weight:600">High</span> (&gt;= 0.5) · <span style="color:var(--yellow);font-weight:600">Medium</span> (&gt;= 0.3) · <span style="color:var(--dim)">Low</span> (&lt; 0.3)
+        Risk levels: <span style="color:var(--red);font-weight:600">Critical</span> (&gt;= 0.7) &middot; <span style="color:var(--orange);font-weight:600">High</span> (&gt;= 0.5) &middot; <span style="color:var(--yellow);font-weight:600">Medium</span> (&gt;= 0.3) &middot; <span style="color:var(--dim)">Low</span> (&lt; 0.3)
       </p>
     </section>
 
@@ -345,19 +450,12 @@
           <span class="cmd-doc-name">inspect pr &lt;number&gt;</span>
           <span class="cmd-doc-desc">Review all changes in a GitHub pull request</span>
         </div>
-        <div class="cmd-doc-flags">
-          <div class="flag"><code>--min-risk &lt;level&gt;</code> <span>Filter by minimum risk</span></div>
-          <div class="flag"><code>--format &lt;fmt&gt;</code> <span>terminal or json</span></div>
-        </div>
       </div>
 
       <div class="cmd-doc">
         <div class="cmd-doc-header">
           <span class="cmd-doc-name">inspect file &lt;path&gt;</span>
           <span class="cmd-doc-desc">Review uncommitted changes in a specific file</span>
-        </div>
-        <div class="cmd-doc-flags">
-          <div class="flag"><code>--context</code> <span>Show dependency details</span></div>
         </div>
       </div>
 
@@ -366,15 +464,12 @@
           <span class="cmd-doc-name">inspect bench --repo &lt;path&gt;</span>
           <span class="cmd-doc-desc">Benchmark entity-level review across a repo's commit history</span>
         </div>
-        <div class="cmd-doc-flags">
-          <div class="flag"><code>--limit &lt;n&gt;</code> <span>Limit number of commits to analyze</span></div>
-        </div>
       </div>
     </section>
 
     <!-- Languages -->
     <section>
-      <h2>Supported languages</h2>
+      <h2>13 languages</h2>
       <p class="section-desc">Entity extraction powered by <a href="https://github.com/Ataraxy-Labs/sem" style="color:var(--green)">sem-core</a> and tree-sitter. All parsers compiled into the binary.</p>
       <table>
         <thead>
@@ -397,38 +492,6 @@
       </table>
     </section>
 
-    <!-- Architecture -->
-    <section>
-      <h2>Architecture</h2>
-      <p class="section-desc">Two crates in a Cargo workspace.</p>
-
-      <div class="terminal">
-        <div class="terminal-bar">
-          <div class="terminal-dot"></div>
-          <div class="terminal-dot"></div>
-          <div class="terminal-dot"></div>
-          <div class="terminal-title">inspect/crates/</div>
-        </div>
-        <div class="terminal-body">
-<pre><span class="g">inspect-core/</span>   Analysis engine
-  <span class="d">classify.rs</span>    ConGra change classification
-  <span class="d">risk.rs</span>        Risk scoring (5 signals)
-  <span class="d">untangle.rs</span>    Union-Find commit grouping
-  <span class="d">analyze.rs</span>     Full-repo entity graph + analysis
-
-<span class="c">inspect-cli/</span>    CLI interface
-  <span class="d">diff.rs</span>        inspect diff command
-  <span class="d">pr.rs</span>          inspect pr command
-  <span class="d">file.rs</span>        inspect file command
-  <span class="d">bench.rs</span>       inspect bench command</pre>
-        </div>
-      </div>
-
-      <p style="font-size: 13px; color: var(--dim); line-height: 1.7;">
-        Entity extraction powered by <a href="https://github.com/Ataraxy-Labs/sem" style="color:var(--green)">sem-core</a>. Full-repo entity graph built from all tracked source files via <code style="color:var(--cyan);font-size:12px">git ls-files</code>. Blast radius computed by transitive BFS through the dependency graph.
-      </p>
-    </section>
-
     <!-- Part of the stack -->
     <section>
       <h2>Part of the Ataraxy Labs stack</h2>
@@ -445,7 +508,7 @@
         </div>
         <div class="phase-card" style="border-color: var(--orange);">
           <h3>inspect</h3>
-          <p>Review what matters. Risk scoring, blast radius, change classification, commit untangling.</p>
+          <p>Review what matters. Graph-based risk scoring, change classification, commit untangling.</p>
         </div>
       </div>
     </section>

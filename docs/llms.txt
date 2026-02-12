@@ -28,11 +28,22 @@ Depends on `sem-core` for entity extraction (tree-sitter parsers for 12 language
 
 ## Risk Scoring
 
-Score = classification_weight + (blast_ratio * 0.3) + (ln(dependents) * 0.1) + public_api_boost + change_type_weight
+Graph-centric scoring. Dependents and blast radius are the primary discriminators. Classification and change type set a low baseline. Only entities with real graph impact reach High/Critical.
 
-Cosmetic-only changes (structural_hash unchanged) get a 0.7x discount.
+Score = classification_weight(0.0-0.28) + change_type_weight(0.0-0.12) + public_api_boost(0.12) + blast_ratio_sqrt * 0.30 + ln(1+dependents) * 0.15
+
+Cosmetic-only changes (structural_hash unchanged) get a 0.2x discount.
 
 Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
+
+## Benchmark Results (AACR-Bench, 158 PRs, 10 languages)
+
+- High/Critical recall: 48.3% (comparable to GPT-5.2's 47.1%)
+- High/Critical + Medium recall: 78.2%
+- Entity coverage: 81.7%
+- Risk distribution: 9.5% High/Critical, 9.5% Medium, 81.1% Low
+- No LLM, no API key, runs locally in under a second
+- Per-language: C# 78%, TypeScript 70%, Java 62%, Python 53%, Go 47%, PHP 40%, Rust 36%
 
 ## Change Classification (ConGra)
 

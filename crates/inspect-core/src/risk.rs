@@ -3,34 +3,38 @@ use sem_core::model::change::ChangeType;
 use crate::types::{ChangeClassification, EntityReview, RiskLevel};
 
 /// Compute a risk score (0.0 to 1.0) for an entity review.
+///
+/// Graph-centric scoring: dependents and blast radius are the primary
+/// discriminators. Classification and change type set a low baseline.
+/// Only entities with real graph impact reach High/Critical.
 pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
     let mut score = 0.0;
 
-    // Classification weight (0.1 to 0.6)
+    // Classification weight (low baseline: 0.0 to 0.15)
     score += classification_weight(review.classification);
 
-    // Blast radius: normalized by total entity count
-    if total_entities > 0 {
-        let blast_ratio = review.blast_radius as f64 / total_entities as f64;
-        score += blast_ratio * 0.3;
-    }
-
-    // Dependent count: more dependents = riskier (logarithmic)
-    if review.dependent_count > 0 {
-        score += (1.0 + review.dependent_count as f64).ln() * 0.1;
-    }
+    // Change type weight (0.0 to 0.1)
+    score += change_type_weight(review.change_type);
 
     // Public API boost
     if review.is_public_api {
-        score += 0.15;
+        score += 0.12;
     }
 
-    // Change type weight
-    score += change_type_weight(review.change_type);
+    // Blast radius: normalized by total entity count, sqrt-scaled
+    if total_entities > 0 && review.blast_radius > 0 {
+        let blast_ratio = review.blast_radius as f64 / total_entities as f64;
+        score += blast_ratio.sqrt() * 0.30;
+    }
 
-    // Cosmetic-only discount
+    // Dependent count: logarithmic scaling
+    if review.dependent_count > 0 {
+        score += (1.0 + review.dependent_count as f64).ln() * 0.15;
+    }
+
+    // Cosmetic-only discount (structural_hash unchanged)
     if review.structural_change == Some(false) {
-        score *= 0.3;
+        score *= 0.2;
     }
 
     score.min(1.0)
@@ -51,23 +55,23 @@ pub fn score_to_level(score: f64) -> RiskLevel {
 
 fn classification_weight(c: ChangeClassification) -> f64 {
     match c {
-        ChangeClassification::Text => 0.05,
-        ChangeClassification::Syntax => 0.2,
-        ChangeClassification::Functional => 0.4,
-        ChangeClassification::TextSyntax => 0.25,
-        ChangeClassification::TextFunctional => 0.45,
-        ChangeClassification::SyntaxFunctional => 0.5,
-        ChangeClassification::TextSyntaxFunctional => 0.55,
+        ChangeClassification::Text => 0.0,
+        ChangeClassification::Syntax => 0.08,
+        ChangeClassification::Functional => 0.22,
+        ChangeClassification::TextSyntax => 0.1,
+        ChangeClassification::TextFunctional => 0.22,
+        ChangeClassification::SyntaxFunctional => 0.25,
+        ChangeClassification::TextSyntaxFunctional => 0.28,
     }
 }
 
 fn change_type_weight(ct: ChangeType) -> f64 {
     match ct {
-        ChangeType::Deleted => 0.2,
-        ChangeType::Modified => 0.1,
-        ChangeType::Renamed => 0.1,
-        ChangeType::Moved => 0.05,
-        ChangeType::Added => 0.05,
+        ChangeType::Deleted => 0.12,
+        ChangeType::Modified => 0.08,
+        ChangeType::Renamed => 0.04,
+        ChangeType::Moved => 0.0,
+        ChangeType::Added => 0.02,
     }
 }
 
@@ -152,11 +156,12 @@ mod tests {
             Some(true),
         );
         let score = compute_risk_score(&review, 10);
+        assert!(score >= 0.7, "Expected Critical, got score={score}");
         assert_eq!(score_to_level(score), RiskLevel::Critical);
     }
 
     #[test]
-    fn added_private_entity_is_medium_or_lower() {
+    fn added_private_entity_is_low() {
         let review = make_review(
             ChangeType::Added,
             ChangeClassification::Functional,
@@ -164,8 +169,32 @@ mod tests {
             None,
         );
         let score = compute_risk_score(&review, 10);
-        // Added + Functional = 0.45, no blast radius or dependents
-        assert!(score_to_level(score) <= RiskLevel::Medium);
-        assert!(score < 0.5); // not High
+        // Added + Functional with no graph impact = low baseline
+        assert_eq!(score_to_level(score), RiskLevel::Low);
+    }
+
+    #[test]
+    fn modified_functional_no_graph_is_medium() {
+        let review = make_review(
+            ChangeType::Modified,
+            ChangeClassification::Functional,
+            0, 0, false,
+            Some(true),
+        );
+        let score = compute_risk_score(&review, 100);
+        // Modified + Functional = 0.30, no graph = Medium baseline
+        assert_eq!(score_to_level(score), RiskLevel::Medium);
+    }
+
+    #[test]
+    fn public_api_with_dependents_is_high() {
+        let review = make_review(
+            ChangeType::Modified,
+            ChangeClassification::Functional,
+            5, 8, true,
+            Some(true),
+        );
+        let score = compute_risk_score(&review, 100);
+        assert!(score >= 0.5, "Expected High+, got score={score}");
     }
 }
