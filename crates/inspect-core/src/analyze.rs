@@ -209,6 +209,7 @@ fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
                 || f.ends_with(".cpp")
                 || f.ends_with(".rb")
                 || f.ends_with(".cs")
+                || f.ends_with(".php")
         })
         .map(|s| s.to_string())
         .collect();

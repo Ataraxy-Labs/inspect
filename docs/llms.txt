@@ -44,7 +44,7 @@ Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 
 ## Languages
 
-Rust, TypeScript, TSX, JavaScript, Python, Go, Java, C, C++, Ruby, C#, Fortran
+Rust, TypeScript, TSX, JavaScript, Python, Go, Java, C, C++, Ruby, C#, PHP, Fortran
 
 ## Links
 
