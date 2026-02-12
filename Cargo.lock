@@ -438,6 +438,7 @@ dependencies = [
  "colored",
  "inspect-core",
  "sem-core",
+ "serde",
  "serde_json",
 ]
 

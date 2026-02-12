@@ -18,6 +18,8 @@ enum Commands {
     Pr(commands::pr::PrArgs),
     /// Review uncommitted changes in a file
     File(commands::file::FileArgs),
+    /// Benchmark entity-level review across a repo's history
+    Bench(commands::bench::BenchArgs),
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -32,5 +34,6 @@ fn main() {
         Commands::Diff(args) => commands::diff::run(args),
         Commands::Pr(args) => commands::pr::run(args),
         Commands::File(args) => commands::file::run(args),
+        Commands::Bench(args) => commands::bench::run(args),
     }
 }

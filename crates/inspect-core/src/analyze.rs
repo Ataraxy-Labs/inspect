@@ -34,16 +34,10 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         return Ok(empty_result());
     }
 
-    // Build entity graph for dependency analysis.
-    // Collect all files that have changes (both old and new paths).
-    let mut all_files: Vec<String> = Vec::new();
-    for fc in &file_changes {
-        if fc.after_content.is_some() {
-            all_files.push(fc.file_path.clone());
-        }
-    }
+    // Build entity graph from ALL source files in the repo (not just changed ones).
+    // This ensures blast_radius and dependent_count reflect the full codebase.
+    let all_files = list_source_files(repo_path)?;
 
-    // Also add files from the after state that entities reference
     let changed_entity_ids: Vec<&str> = diff.changes.iter().map(|c| c.entity_id.as_str()).collect();
 
     let graph = EntityGraph::build(git.repo_root(), &all_files, &registry);
@@ -175,6 +169,42 @@ fn compute_stats(reviews: &[EntityReview]) -> ReviewStats {
         by_classification: by_classification,
         by_change_type: by_change,
     }
+}
+
+/// List all tracked source files in the repo via `git ls-files`.
+fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
+    let output = std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| AnalyzeError::Git(format!("failed to run git ls-files: {}", e)))?;
+
+    if !output.status.success() {
+        return Err(AnalyzeError::Git("git ls-files failed".into()));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<String> = stdout
+        .lines()
+        .filter(|f| {
+            let f = f.to_lowercase();
+            f.ends_with(".rs")
+                || f.ends_with(".ts")
+                || f.ends_with(".tsx")
+                || f.ends_with(".js")
+                || f.ends_with(".jsx")
+                || f.ends_with(".py")
+                || f.ends_with(".go")
+                || f.ends_with(".java")
+                || f.ends_with(".c")
+                || f.ends_with(".cpp")
+                || f.ends_with(".rb")
+                || f.ends_with(".cs")
+        })
+        .map(|s| s.to_string())
+        .collect();
+
+    Ok(files)
 }
 
 fn empty_result() -> ReviewResult {

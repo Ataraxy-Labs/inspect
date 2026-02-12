@@ -1,0 +1,53 @@
+# inspect
+
+Entity-level code review CLI for Git. Built by Ataraxy Labs.
+
+## What it does
+
+inspect analyzes Git diffs at the entity level (functions, structs, classes, traits) instead of the file or line level. Each changed entity gets:
+
+- **Change classification**: ConGra taxonomy (text, syntax, functional, or combinations)
+- **Risk scoring**: 0.0-1.0 based on classification, blast radius, dependent count, public API exposure, change type
+- **Blast radius**: How many entities are transitively affected by this change
+- **Group assignment**: Union-Find untangling separates independent logical changes within a single commit
+
+## Commands
+
+- `inspect diff <ref>`: Review entity-level changes for a commit or range
+- `inspect pr <number>`: Review all changes in a GitHub pull request
+- `inspect file <path>`: Review uncommitted changes in a file
+- `inspect bench --repo <path>`: Benchmark entity-level review across a repo's history
+
+## Architecture
+
+Built in Rust. Two crates:
+- `inspect-core`: Analysis engine (classify, risk score, untangle)
+- `inspect-cli`: CLI interface with terminal and JSON formatters
+
+Depends on `sem-core` for entity extraction (tree-sitter parsers for 12 languages) and entity dependency graph.
+
+## Risk Scoring
+
+Score = classification_weight + (blast_ratio * 0.3) + (ln(dependents) * 0.1) + public_api_boost + change_type_weight
+
+Cosmetic-only changes (structural_hash unchanged) get a 0.7x discount.
+
+Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
+
+## Change Classification (ConGra)
+
+7 categories along 3 dimensions:
+1. Text: comments, whitespace, docs
+2. Syntax: signatures, types, declarations
+3. Functional: logic, behavior
+4. Text+Syntax, Text+Functional, Syntax+Functional, Text+Syntax+Functional
+
+## Languages
+
+Rust, TypeScript, TSX, JavaScript, Python, Go, Java, C, C++, Ruby, C#, Fortran
+
+## Links
+
+- GitHub: https://github.com/Ataraxy-Labs/inspect
+- sem (entity extraction): https://github.com/Ataraxy-Labs/sem
+- weave (entity merge): https://github.com/Ataraxy-Labs/weave
