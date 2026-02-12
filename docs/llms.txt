@@ -36,14 +36,24 @@ Cosmetic-only changes (structural_hash unchanged) get a 0.2x discount.
 
 Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 
-## Benchmark Results (AACR-Bench, 158 PRs, 10 languages)
+## Benchmark Results
 
+### AACR-Bench (158 PRs, 50 repos, 10 languages)
 - High/Critical recall: 48.3% (comparable to GPT-5.2's 47.1%)
 - High/Critical + Medium recall: 78.2%
 - Entity coverage: 81.7%
 - Risk distribution: 9.5% High/Critical, 9.5% Medium, 81.1% Low
-- No LLM, no API key, runs locally in under a second
 - Per-language: C# 78%, TypeScript 70%, Java 62%, Python 53%, Go 47%, PHP 40%, Rust 36%
+
+### Greptile benchmark (20/50 PRs evaluated, 52 golden comments)
+- HC recall: 73.1% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
+- HCM recall: 100% (every golden comment within a flagged entity)
+- Keycloak (Java, 10 PRs): 75% HC, 100% HCM
+- Discourse (Ruby, 10 PRs): 71% HC, 100% HCM
+- Evaluated on Augment's expanded golden comments (not Greptile's original 1-per-PR)
+
+### Common across benchmarks
+- No LLM, no API key, runs locally in under a second
 
 ## Change Classification (ConGra)
 
