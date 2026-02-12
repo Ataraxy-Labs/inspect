@@ -24,7 +24,7 @@ Built in Rust. Two crates:
 - `inspect-core`: Analysis engine (classify, risk score, untangle)
 - `inspect-cli`: CLI interface with terminal and JSON formatters
 
-Depends on `sem-core` for entity extraction (tree-sitter parsers for 12 languages) and entity dependency graph.
+Depends on `sem-core` for entity extraction (tree-sitter parsers for 13 languages) and entity dependency graph.
 
 ## Risk Scoring
 
@@ -57,11 +57,11 @@ Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 
 ## Performance
 
-Parallel entity extraction via rayon, zero-allocation BFS, capped graph traversal.
+Parallel entity extraction via rayon, zero-allocation BFS, capped graph traversal. Powered by sem-core v0.3.0 with xxHash64, LTO, and cached tree resolution.
 
-- Small repos (<100 files): <50ms
-- Medium repos (~1k entities): <100ms
-- Large repos (16k files, 100k entities, e.g. Sentry): ~4 seconds
+- Small repos (~50 files): 19ms
+- Medium repos (~200 files): 22ms
+- Large repos (~300 files, 9K LOC): 50ms
 - Reports per-phase timing breakdown (diff, graph build, scoring)
 
 ## Change Classification (ConGra)

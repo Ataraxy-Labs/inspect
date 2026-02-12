@@ -104,7 +104,7 @@ export default function Home() {
           </div>
 
           <p className="text-gray-500 text-sm">
-            Blast radius 595 means one entity change could affect 595 other entities transitively. A line-level diff won&apos;t tell you this. 70.7% cross-file impact means reviewing one file in isolation misses the picture.
+            Blast radius 595 means one entity change could affect 595 other entities transitively. A line-level diff won&apos;t tell you this. 70.7% cross-file impact means reviewing one file in isolation misses the picture. All three repos analyzed in under 50ms each. Powered by sem-core v0.3.0 with xxHash64 structural hashing and LTO-optimized builds.
           </p>
         </div>
       </section>
@@ -295,10 +295,10 @@ $ inspect pr 42 --min-risk high --format json`}</code></pre>
       <section className="px-6 py-16 border-t border-white/10">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            12 Languages
+            13 Languages
           </h2>
           <div className="flex flex-wrap gap-3">
-            {["Rust", "TypeScript", "TSX", "JavaScript", "Python", "Go", "Java", "C", "C++", "Ruby", "C#", "Fortran"].map((lang) => (
+            {["Rust", "TypeScript", "TSX", "JavaScript", "Python", "Go", "Java", "C", "C++", "Ruby", "C#", "PHP", "Fortran"].map((lang) => (
               <span key={lang} className="px-4 py-2 border border-white/15 rounded-lg text-sm text-gray-300">
                 {lang}
               </span>
