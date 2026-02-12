@@ -164,6 +164,8 @@ mod tests {
             is_public_api: false,
             structural_change: Some(true),
             group_id: 0,
+            start_line: 1,
+            end_line: 10,
         }
     }
 

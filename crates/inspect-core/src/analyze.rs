@@ -56,6 +56,13 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         let after_content = change.after_content.as_deref();
         let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content);
 
+        // Look up line numbers from the entity graph (after-state positions)
+        let (start_line, end_line) = graph
+            .entities
+            .get(&change.entity_id)
+            .map(|e| (e.start_line, e.end_line))
+            .unwrap_or((0, 0));
+
         let mut review = EntityReview {
             entity_id: change.entity_id.clone(),
             entity_name: change.entity_name.clone(),
@@ -71,6 +78,8 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             is_public_api: pub_api,
             structural_change: change.structural_change,
             group_id: 0,
+            start_line,
+            end_line,
         };
 
         review.risk_score = compute_risk_score(&review, total_graph_entities);

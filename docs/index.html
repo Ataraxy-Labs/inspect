@@ -21,7 +21,7 @@
     <div style="padding: 48px 0 32px; text-align: center;">
       <h1 style="font-size: 36px; font-weight: 700; color: var(--accent); letter-spacing: -1.5px; margin-bottom: 12px;">Review what matters.</h1>
       <p style="font-size: 14px; color: var(--dim); margin-bottom: 24px; line-height: 1.7; max-width: 540px; margin-left: auto; margin-right: auto;">
-        Entity-level code review for Git. Scores each changed function by risk, computes blast radius, classifies changes, and untangles commits into logical groups.
+        Entity-level code review for Git. Review 16% of entities, catch 72% of real issues. Tested on 145 PRs across 50 open-source repos.
       </p>
       <div class="install-box" onclick="copyCmd(this, 'cargo install --git https://github.com/Ataraxy-Labs/inspect inspect-cli')" style="display: inline-block; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 20px; font-size: 14px; color: var(--fg); cursor: pointer; position: relative;">
         <span class="copied" style="position: absolute; top: -28px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--green); opacity: 0; transition: opacity 0.2s;">copied</span>
@@ -108,95 +108,116 @@
       </div>
     </section>
 
-    <!-- Benchmark -->
+    <!-- AACR-Bench -->
     <section>
-      <h2>Benchmark: 89 commits, 8,870 entities</h2>
-      <p class="section-desc">Real results from running <code style="background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--cyan)">inspect bench</code> against three Rust codebases.</p>
+      <h2>AACR-Bench: 145 PRs, 1,047 issues, 50 repos</h2>
+      <p class="section-desc">Evaluated on <a href="https://github.com/Alibaba-NLP/AACR-Bench" style="color:var(--cyan)">AACR-Bench</a>, Alibaba's code review benchmark with ground-truth issues from human reviewers. The question: if you only review the entities inspect marks as High/Critical risk, how many real issues do you catch?</p>
 
       <div class="stat-cards">
-        <div class="stat-card" style="border-color: var(--red);">
-          <div class="stat-value" style="color: var(--red);">595</div>
-          <div class="stat-label">max blast radius</div>
-          <div class="stat-detail">one change in agenthub</div>
+        <div class="stat-card" style="border-color: var(--green);">
+          <div class="stat-value" style="color: var(--green);">72%</div>
+          <div class="stat-label">issues caught</div>
+          <div class="stat-detail">reviewing only High/Critical entities</div>
         </div>
-        <div class="stat-card" style="border-color: var(--orange);">
-          <div class="stat-value" style="color: var(--orange);">70.7%</div>
-          <div class="stat-label">cross-file impact</div>
-          <div class="stat-detail">agenthub changes ripple across files</div>
+        <div class="stat-card" style="border-color: var(--cyan);">
+          <div class="stat-value" style="color: var(--cyan);">16%</div>
+          <div class="stat-label">entities reviewed</div>
+          <div class="stat-detail">of all changed entities in a PR</div>
         </div>
-        <div class="stat-card" style="border-color: var(--yellow);">
-          <div class="stat-value" style="color: var(--yellow);">96.8%</div>
-          <div class="stat-label">tangled commits</div>
-          <div class="stat-detail">sem commits with multiple logical changes</div>
+        <div class="stat-card" style="border-color: var(--purple);">
+          <div class="stat-value" style="color: var(--purple);">83%</div>
+          <div class="stat-label">with Medium included</div>
+          <div class="stat-detail">High + Critical + Medium catch rate</div>
         </div>
       </div>
+
+      <p style="font-size:14px;color:var(--fg);margin-bottom:20px;line-height:1.7;">
+        <strong style="color:var(--accent)">Review 16% of entities, catch 72% of issues.</strong> Adding Medium-risk entities brings it to 83%. Entity coverage (issues within any changed entity) is 79%.
+      </p>
 
       <div class="comparison-table">
         <table>
           <thead>
             <tr>
-              <th>Metric</th>
-              <th>sem</th>
-              <th>weave</th>
-              <th>agenthub</th>
+              <th>Language</th>
+              <th>PRs</th>
+              <th>Entities</th>
+              <th>HC Catch Rate</th>
+              <th>Coverage</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>Commits analyzed</td>
-              <td>31</td>
-              <td>39</td>
+              <td>Python</td>
+              <td>21</td>
+              <td>99,480</td>
+              <td class="win">89%</td>
+              <td class="win">95%</td>
+            </tr>
+            <tr>
+              <td>Java</td>
+              <td>10</td>
+              <td>60,696</td>
+              <td class="win">88%</td>
+              <td class="win">93%</td>
+            </tr>
+            <tr>
+              <td>Rust</td>
+              <td>7</td>
+              <td>13,351</td>
+              <td class="win">86%</td>
+              <td class="win">88%</td>
+            </tr>
+            <tr>
+              <td>TypeScript</td>
+              <td>27</td>
+              <td>600,349</td>
+              <td class="win">83%</td>
+              <td class="win">86%</td>
+            </tr>
+            <tr>
+              <td>C#</td>
+              <td>9</td>
+              <td>22,055</td>
+              <td class="win">81%</td>
+              <td>81%</td>
+            </tr>
+            <tr>
+              <td>Go</td>
+              <td>21</td>
+              <td>56,825</td>
+              <td>79%</td>
+              <td>79%</td>
+            </tr>
+            <tr>
+              <td>C</td>
               <td>19</td>
+              <td>49,496</td>
+              <td>62%</td>
+              <td>73%</td>
             </tr>
             <tr>
-              <td>Entities reviewed</td>
-              <td>4,955</td>
-              <td>2,803</td>
-              <td>1,112</td>
+              <td>JavaScript</td>
+              <td>10</td>
+              <td>34,748</td>
+              <td>56%</td>
+              <td>82%</td>
             </tr>
             <tr>
-              <td>Avg entities/commit</td>
-              <td>159.8</td>
-              <td>71.9</td>
-              <td>58.5</td>
-            </tr>
-            <tr>
-              <td>Avg blast radius</td>
-              <td>0.0</td>
-              <td>3.4</td>
-              <td class="high">42.5</td>
-            </tr>
-            <tr>
-              <td>Max blast radius</td>
-              <td>0</td>
-              <td>171</td>
-              <td class="high">595</td>
-            </tr>
-            <tr>
-              <td>High/Critical ratio</td>
-              <td>15.1%</td>
-              <td class="mid">40.6%</td>
-              <td class="high">77.1%</td>
-            </tr>
-            <tr>
-              <td>Cross-file impact</td>
-              <td>0%</td>
-              <td>10.6%</td>
-              <td class="high">70.7%</td>
-            </tr>
-            <tr>
-              <td>Tangled commits</td>
-              <td class="high">96.8%</td>
-              <td class="mid">69.2%</td>
-              <td class="high">94.7%</td>
+              <td>C++</td>
+              <td>10</td>
+              <td>51,043</td>
+              <td class="lose">40%</td>
+              <td class="lose">46%</td>
             </tr>
           </tbody>
         </table>
       </div>
       <p style="font-size:13px;color:var(--dim);margin-top:16px;line-height:1.7;">
-        Blast radius 595 means one entity change could affect 595 other entities transitively. A line-level diff won't tell you this.
-        70.7% cross-file impact means reviewing one file in isolation misses the picture.
-        96.8% tangled commits means almost every commit in sem contains multiple independent logical changes that should be reviewed separately.
+        145 PRs evaluated across 50 open-source repos (React, Svelte, ollama, uv, vllm, bitcoin, n8n, ComfyUI, and more).
+        51 PRs skipped due to timeout on very large repos (elasticsearch, FreeCAD) or C++ parse limitations (ClickHouse).
+        HC Catch Rate = % of ground truth issues within High/Critical entities.
+        Coverage = % of issues within any changed entity.
       </p>
     </section>
 

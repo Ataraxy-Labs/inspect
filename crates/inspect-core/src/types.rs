@@ -72,6 +72,8 @@ pub struct EntityReview {
     pub is_public_api: bool,
     pub structural_change: Option<bool>,
     pub group_id: usize,
+    pub start_line: usize,
+    pub end_line: usize,
 }
 
 /// A logical group of related changes (from untangling).

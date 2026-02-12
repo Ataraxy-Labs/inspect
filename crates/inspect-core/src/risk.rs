@@ -126,6 +126,8 @@ mod tests {
             is_public_api: is_public,
             structural_change,
             group_id: 0,
+            start_line: 1,
+            end_line: 10,
         }
     }
 
