@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/inspect-core", "crates/inspect-cli"]
+resolver = "2"

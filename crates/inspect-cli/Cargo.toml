@@ -1,0 +1,15 @@
+[package]
+name = "inspect-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "inspect"
+path = "src/main.rs"
+
+[dependencies]
+inspect-core = { path = "../inspect-core" }
+sem-core = { path = "../../../sem/crates/sem-core" }
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+serde_json = "1"

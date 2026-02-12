@@ -1,0 +1,301 @@
+use std::collections::HashMap;
+use std::path::Path;
+
+use sem_core::git::bridge::GitBridge;
+use sem_core::git::types::DiffScope;
+use sem_core::model::change::ChangeType;
+use sem_core::parser::differ::compute_semantic_diff;
+use sem_core::parser::graph::EntityGraph;
+use sem_core::parser::plugins::create_default_registry;
+
+use crate::classify::classify_change;
+use crate::risk::{compute_risk_score, is_public_api, score_to_level};
+use crate::types::*;
+use crate::untangle::untangle;
+
+/// Analyze a diff scope and produce a ReviewResult.
+pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, AnalyzeError> {
+    let git = GitBridge::open(repo_path).map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let registry = create_default_registry();
+
+    // Get file changes
+    let file_changes = git
+        .get_changed_files(&scope)
+        .map_err(|e| AnalyzeError::Git(e.to_string()))?;
+
+    if file_changes.is_empty() {
+        return Ok(empty_result());
+    }
+
+    // Compute entity-level diff
+    let diff = compute_semantic_diff(&file_changes, &registry, None, None);
+
+    if diff.changes.is_empty() {
+        return Ok(empty_result());
+    }
+
+    // Build entity graph for dependency analysis.
+    // Collect all files that have changes (both old and new paths).
+    let mut all_files: Vec<String> = Vec::new();
+    for fc in &file_changes {
+        if fc.after_content.is_some() {
+            all_files.push(fc.file_path.clone());
+        }
+    }
+
+    // Also add files from the after state that entities reference
+    let changed_entity_ids: Vec<&str> = diff.changes.iter().map(|c| c.entity_id.as_str()).collect();
+
+    let graph = EntityGraph::build(git.repo_root(), &all_files, &registry);
+    let total_graph_entities = graph.entities.len();
+
+    // Build entity reviews
+    let mut reviews: Vec<EntityReview> = Vec::new();
+    let mut dependency_edges: Vec<(String, String)> = Vec::new();
+
+    for change in &diff.changes {
+        let dependents = graph.get_dependents(&change.entity_id);
+        let dependencies = graph.get_dependencies(&change.entity_id);
+        let impact = graph.impact_analysis(&change.entity_id);
+
+        let classification = classify_change(change);
+        let after_content = change.after_content.as_deref();
+        let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content);
+
+        let mut review = EntityReview {
+            entity_id: change.entity_id.clone(),
+            entity_name: change.entity_name.clone(),
+            entity_type: change.entity_type.clone(),
+            file_path: change.file_path.clone(),
+            change_type: change.change_type,
+            classification,
+            risk_score: 0.0,
+            risk_level: RiskLevel::Low,
+            blast_radius: impact.len(),
+            dependent_count: dependents.len(),
+            dependency_count: dependencies.len(),
+            is_public_api: pub_api,
+            structural_change: change.structural_change,
+            group_id: 0,
+        };
+
+        review.risk_score = compute_risk_score(&review, total_graph_entities);
+        review.risk_level = score_to_level(review.risk_score);
+
+        // Collect dependency edges between changed entities for untangling
+        for dep in &dependencies {
+            if changed_entity_ids.contains(&dep.id.as_str()) {
+                dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
+            }
+        }
+        for dep in &dependents {
+            if changed_entity_ids.contains(&dep.id.as_str()) {
+                dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
+            }
+        }
+
+        reviews.push(review);
+    }
+
+    // Sort by risk (highest first)
+    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+
+    // Untangle into groups
+    let groups = untangle(&reviews, &dependency_edges);
+
+    // Assign group IDs back to reviews
+    let entity_to_group: HashMap<&str, usize> = groups
+        .iter()
+        .flat_map(|g| g.entity_ids.iter().map(move |id| (id.as_str(), g.id)))
+        .collect();
+
+    for review in &mut reviews {
+        if let Some(&gid) = entity_to_group.get(review.entity_id.as_str()) {
+            review.group_id = gid;
+        }
+    }
+
+    // Compute stats
+    let stats = compute_stats(&reviews);
+
+    Ok(ReviewResult {
+        entity_reviews: reviews,
+        groups,
+        stats,
+        changes: diff.changes,
+    })
+}
+
+fn compute_stats(reviews: &[EntityReview]) -> ReviewStats {
+    let mut by_risk = RiskBreakdown {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+    };
+    let mut by_classification = ClassificationBreakdown {
+        text: 0,
+        syntax: 0,
+        functional: 0,
+        mixed: 0,
+    };
+    let mut by_change = ChangeTypeBreakdown {
+        added: 0,
+        modified: 0,
+        deleted: 0,
+        moved: 0,
+        renamed: 0,
+    };
+
+    for r in reviews {
+        match r.risk_level {
+            RiskLevel::Critical => by_risk.critical += 1,
+            RiskLevel::High => by_risk.high += 1,
+            RiskLevel::Medium => by_risk.medium += 1,
+            RiskLevel::Low => by_risk.low += 1,
+        }
+        match r.classification {
+            ChangeClassification::Text => by_classification.text += 1,
+            ChangeClassification::Syntax => by_classification.syntax += 1,
+            ChangeClassification::Functional => by_classification.functional += 1,
+            _ => by_classification.mixed += 1,
+        }
+        match r.change_type {
+            ChangeType::Added => by_change.added += 1,
+            ChangeType::Modified => by_change.modified += 1,
+            ChangeType::Deleted => by_change.deleted += 1,
+            ChangeType::Moved => by_change.moved += 1,
+            ChangeType::Renamed => by_change.renamed += 1,
+        }
+    }
+
+    ReviewStats {
+        total_entities: reviews.len(),
+        by_risk,
+        by_classification: by_classification,
+        by_change_type: by_change,
+    }
+}
+
+fn empty_result() -> ReviewResult {
+    ReviewResult {
+        entity_reviews: vec![],
+        groups: vec![],
+        stats: ReviewStats {
+            total_entities: 0,
+            by_risk: RiskBreakdown {
+                critical: 0,
+                high: 0,
+                medium: 0,
+                low: 0,
+            },
+            by_classification: ClassificationBreakdown {
+                text: 0,
+                syntax: 0,
+                functional: 0,
+                mixed: 0,
+            },
+            by_change_type: ChangeTypeBreakdown {
+                added: 0,
+                modified: 0,
+                deleted: 0,
+                moved: 0,
+                renamed: 0,
+            },
+        },
+        changes: vec![],
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AnalyzeError {
+    #[error("git error: {0}")]
+    Git(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    fn init_repo(dir: &Path) {
+        Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+    }
+
+    fn commit(dir: &Path, msg: &str) {
+        Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", msg, "--allow-empty"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn analyze_added_function() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        // Initial commit with empty file
+        std::fs::write(dir.join("main.rs"), "").unwrap();
+        commit(dir, "init");
+
+        // Add a function
+        std::fs::write(dir.join("main.rs"), "fn hello() {\n    println!(\"hello\");\n}\n").unwrap();
+        commit(dir, "add hello");
+
+        let result = analyze(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert!(!result.entity_reviews.is_empty());
+        let review = &result.entity_reviews[0];
+        assert_eq!(review.change_type, ChangeType::Added);
+        assert_eq!(review.classification, ChangeClassification::Functional);
+    }
+
+    #[test]
+    fn analyze_empty_diff() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(dir.join("main.rs"), "fn hello() {}\n").unwrap();
+        commit(dir, "init");
+
+        // No changes
+        let result = analyze(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+        );
+        // This should either succeed with entities or succeed with empty
+        // depending on whether the initial commit has a parent
+        assert!(result.is_ok());
+    }
+}
