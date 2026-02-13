@@ -189,14 +189,14 @@
     <section>
       <h2>Greptile benchmark</h2>
       <p class="section-desc">
-        <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's benchmark</a>: 50 PRs with planted bugs across 5 repos (Sentry, Cal.com, Grafana, Keycloak, Discourse). Ground truth from <a href="https://github.com/ai-code-review-evaluations/golden_comments" style="color:var(--cyan)">Augment's expanded golden comments</a> (145 issues). We ran inspect on the same PRs.
+        <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's benchmark</a>: 50 PRs with planted bugs across 5 repos (Sentry, Cal.com, Grafana, Keycloak, Discourse). Ground truth from <a href="https://github.com/ai-code-review-evaluations/golden_comments" style="color:var(--cyan)">Augment's expanded golden comments</a> (97 non-low issues). We ran inspect on all 50 PRs.
       </p>
 
       <div class="stat-cards">
         <div class="stat-card" style="border-color: var(--green);">
-          <div class="stat-value" style="color: var(--green);">73%</div>
+          <div class="stat-value" style="color: var(--green);">83.5%</div>
           <div class="stat-label">High/Critical recall</div>
-          <div class="stat-detail">20 PRs, 52 golden comments</div>
+          <div class="stat-detail">50 PRs, 97 golden comments</div>
         </div>
         <div class="stat-card" style="border-color: var(--cyan);">
           <div class="stat-value" style="color: var(--cyan);">100%</div>
@@ -223,16 +223,40 @@
               <td>Keycloak</td>
               <td>Java</td>
               <td>10</td>
-              <td>24</td>
-              <td class="win">75%</td>
+              <td>18</td>
+              <td class="win">100%</td>
+              <td class="win">100%</td>
+            </tr>
+            <tr>
+              <td>Cal.com</td>
+              <td>TypeScript</td>
+              <td>10</td>
+              <td>23</td>
+              <td class="win">91%</td>
+              <td class="win">100%</td>
+            </tr>
+            <tr>
+              <td>Grafana</td>
+              <td>Go</td>
+              <td>10</td>
+              <td>16</td>
+              <td class="win">81%</td>
               <td class="win">100%</td>
             </tr>
             <tr>
               <td>Discourse</td>
               <td>Ruby</td>
               <td>10</td>
-              <td>28</td>
-              <td class="win">71%</td>
+              <td>19</td>
+              <td class="win">79%</td>
+              <td class="win">100%</td>
+            </tr>
+            <tr>
+              <td>Sentry</td>
+              <td>Python</td>
+              <td>10</td>
+              <td>21</td>
+              <td>67%</td>
               <td class="win">100%</td>
             </tr>
           </tbody>
@@ -260,7 +284,7 @@
             <tr>
               <td><strong style="color:var(--accent)">inspect</strong> (High/Critical)</td>
               <td>graph-based triage</td>
-              <td class="win">73%</td>
+              <td class="win">83.5%</td>
               <td class="mid">n/a (triage)</td>
               <td class="win">free</td>
               <td class="win">&lt;1s</td>
@@ -310,7 +334,7 @@
       </div>
 
       <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
-        <strong style="color:var(--fg)">Different tools, same benchmark.</strong> LLM-based tools generate specific review comments. inspect identifies which entities need review. inspect's recall is measured on 20/50 PRs (Keycloak + Discourse); the other 3 repos timed out on full graph builds for 1M+ LOC codebases. The LLM tools were evaluated on all 50 PRs. The approaches are complementary: use inspect to triage, then point an LLM at the flagged entities.
+        <strong style="color:var(--fg)">Different tools, same benchmark.</strong> LLM-based tools generate specific review comments. inspect identifies which entities need review. All 50 PRs evaluated across all 5 repos (Sentry 1M LOC, Grafana 2.6M LOC, Keycloak 900K LOC, Cal.com 710K LOC, Discourse 330K LOC). The approaches are complementary: use inspect to triage, then point an LLM at the flagged entities.
       </p>
 
       <div class="bench-group" style="margin-top: 32px;">
@@ -318,10 +342,10 @@
         <div class="bench-row">
           <div class="bench-label">
             <span class="name"><strong style="color:var(--accent)">inspect</strong> (High/Critical)</span>
-            <span class="value" style="color:var(--green)">73%</span>
+            <span class="value" style="color:var(--green)">83.5%</span>
           </div>
           <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="73">73%</div>
+            <div class="bench-bar inspect-bar" data-width="83.5">83.5%</div>
           </div>
         </div>
         <div class="bench-row">
@@ -369,7 +393,7 @@
             <div class="bench-bar dim-bar" data-width="34">34%</div>
           </div>
         </div>
-        <div class="bench-note">20 PRs evaluated, same benchmark, same ground truth</div>
+        <div class="bench-note">50 PRs evaluated, same benchmark, same ground truth</div>
       </div>
 
       <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
@@ -579,23 +603,23 @@
           <tbody>
             <tr>
               <td>sem</td>
-              <td>25 files, 5K entities</td>
-              <td class="win">24ms</td>
+              <td>25 files, 65 entities changed</td>
+              <td class="win">6ms</td>
             </tr>
             <tr>
               <td>weave</td>
-              <td>80 files, 3K entities</td>
-              <td class="win">30ms</td>
+              <td>80 files, 89 entities changed</td>
+              <td class="win">6ms</td>
             </tr>
             <tr>
               <td>agenthub</td>
-              <td>130 files, 9K LOC</td>
-              <td class="win">49ms</td>
+              <td>130 files, 95 entities changed</td>
+              <td class="win">35ms</td>
             </tr>
             <tr>
               <td>inspect</td>
-              <td>50 files</td>
-              <td class="win">66ms</td>
+              <td>50 files, large commit</td>
+              <td class="win">67ms</td>
             </tr>
           </tbody>
         </table>
@@ -621,19 +645,19 @@
               <td>agenthub</td>
               <td>19</td>
               <td>1,112</td>
-              <td class="win">0.56s</td>
+              <td class="win">0.55s</td>
             </tr>
             <tr>
               <td>sem</td>
               <td>38</td>
               <td>5,216</td>
-              <td class="win">0.87s</td>
+              <td class="win">0.57s</td>
             </tr>
             <tr>
               <td>weave</td>
               <td>45</td>
               <td>2,854</td>
-              <td class="win">1.81s</td>
+              <td class="win">1.33s</td>
             </tr>
           </tbody>
         </table>
@@ -642,20 +666,20 @@
       <div class="bench-group" style="margin-top: 32px;">
         <h3>Single commit review time (visual)</h3>
         <div class="bench-row">
-          <div class="bench-label"><span class="name">sem (25 files)</span><span class="value" style="color:var(--green)">24ms</span></div>
-          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="36">24ms</div></div>
+          <div class="bench-label"><span class="name">sem (25 files)</span><span class="value" style="color:var(--green)">6ms</span></div>
+          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="9">6ms</div></div>
         </div>
         <div class="bench-row">
-          <div class="bench-label"><span class="name">weave (80 files)</span><span class="value" style="color:var(--green)">30ms</span></div>
-          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="45">30ms</div></div>
+          <div class="bench-label"><span class="name">weave (80 files)</span><span class="value" style="color:var(--green)">6ms</span></div>
+          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="9">6ms</div></div>
         </div>
         <div class="bench-row">
-          <div class="bench-label"><span class="name">agenthub (130 files)</span><span class="value" style="color:var(--green)">49ms</span></div>
-          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="74">49ms</div></div>
+          <div class="bench-label"><span class="name">agenthub (130 files)</span><span class="value" style="color:var(--green)">35ms</span></div>
+          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="52">35ms</div></div>
         </div>
         <div class="bench-row">
-          <div class="bench-label"><span class="name">inspect (50 files)</span><span class="value" style="color:var(--green)">66ms</span></div>
-          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="100">66ms</div></div>
+          <div class="bench-label"><span class="name">inspect (50 files)</span><span class="value" style="color:var(--green)">67ms</span></div>
+          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="100">67ms</div></div>
         </div>
         <div class="bench-note">30 runs via hyperfine -N, warm cache</div>
       </div>

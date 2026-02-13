@@ -45,11 +45,14 @@ Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 - Risk distribution: 9.5% High/Critical, 9.5% Medium, 81.1% Low
 - Per-language: C# 78%, TypeScript 70%, Java 62%, Python 53%, Go 47%, PHP 40%, Rust 36%
 
-### Greptile benchmark (20/50 PRs evaluated, 52 golden comments)
-- HC recall: 73.1% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
+### Greptile benchmark (50 PRs, 5 repos, 97 golden comments)
+- HC recall: 83.5% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
 - HCM recall: 100% (every golden comment within a flagged entity)
-- Keycloak (Java, 10 PRs): 75% HC, 100% HCM
-- Discourse (Ruby, 10 PRs): 71% HC, 100% HCM
+- Keycloak (Java, 10 PRs): 100% HC, 100% HCM
+- Cal.com (TypeScript, 10 PRs): 91% HC, 100% HCM
+- Grafana (Go, 10 PRs): 81% HC, 100% HCM
+- Discourse (Ruby, 10 PRs): 79% HC, 100% HCM
+- Sentry (Python, 10 PRs): 67% HC, 100% HCM
 - Evaluated on Augment's expanded golden comments (not Greptile's original 1-per-PR)
 
 ### Common across benchmarks
@@ -60,15 +63,15 @@ Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 Parallel entity extraction via rayon, zero-allocation BFS, capped graph traversal. Powered by sem-core v0.3.0 with xxHash64, LTO, and cached tree resolution.
 
 Single commit review:
-- sem (25 files, 5K entities): 24ms
-- weave (80 files, 3K entities): 30ms
-- agenthub (130 files, 9K LOC): 49ms
-- inspect (50 files): 66ms
+- sem (25 files, 65 entities changed): 6ms
+- weave (80 files, 89 entities changed): 6ms
+- agenthub (130 files, 95 entities changed): 35ms
+- inspect (50 files, large commit): 67ms
 
 Full repo history (inspect bench):
-- sem (38 commits, 5,216 entities): 0.87s
-- weave (45 commits, 2,854 entities): 1.81s
-- agenthub (19 commits, 1,112 entities): 0.56s
+- agenthub (19 commits, 1,112 entities): 0.55s
+- sem (38 commits, 5,216 entities): 0.57s
+- weave (45 commits, 2,854 entities): 1.33s
 
 ## Change Classification (ConGra)
 
