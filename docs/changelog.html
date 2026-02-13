@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Changelog | inspect</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .changelog-entry { padding: 20px 0; border-bottom: 1px solid #181818; }
+    .changelog-entry:last-child { border-bottom: none; }
+    .changelog-sha {
+      font-size: 12px; color: var(--cyan); background: var(--surface);
+      padding: 2px 8px; border-radius: 4px; margin-right: 8px;
+    }
+    .changelog-tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-right: 6px;
+    }
+    .changelog-tag.feat { background: #1a1a1a; color: var(--fg); }
+    .changelog-tag.perf { background: #1a1a1a; color: var(--fg); }
+    .changelog-tag.bench { background: #1a1a1a; color: var(--fg); }
+    .changelog-tag.rewrite { background: #1a1a1a; color: var(--fg); }
+    .changelog-title { font-size: 14px; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+    .changelog-body { font-size: 12px; color: var(--dim); line-height: 1.7; }
+    .changelog-stats { font-size: 11px; color: var(--dim2); margin-top: 8px; }
+    .changelog-mistake {
+      margin-top: 10px; padding: 10px 14px; border-left: 2px solid #555;
+      background: #141414; font-size: 12px; color: var(--dim); line-height: 1.6;
+    }
+    .changelog-mistake strong { color: var(--accent); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a class="logo" href="index.html">inspect</a>
+      <div class="links">
+        <a href="index.html">Home</a>
+        <a href="benchmarks.html">Benchmarks</a>
+        <a href="docs.html">Docs</a>
+        <a href="changelog.html" class="active">Changelog</a>
+        <a href="https://github.com/Ataraxy-Labs/inspect">GitHub</a>
+        <a href="llms.txt">llms.txt</a>
+      </div>
+    </nav>
+
+    <section style="border-top: none;">
+      <h2>Changelog</h2>
+      <p class="section-desc">
+        How inspect evolved, including the mistakes.
+      </p>
+
+      <div class="changelog-entry">
+        <div class="changelog-title">
+          <span class="changelog-sha">6b2e4fd</span>
+          <span class="changelog-tag feat">feat</span>
+          MCP server, review verdict, markdown formatter
+        </div>
+        <p class="changelog-body">
+          New <code style="color:var(--fg)">inspect-mcp</code> crate: 6 MCP tools so any coding agent can use entity-level review.
+          <code style="color:var(--fg)">inspect_triage</code> is the primary entry point, returning entities sorted by risk with a verdict.
+          <code style="color:var(--fg)">inspect_entity</code> lets agents drill into one entity with before/after content, dependents, and dependencies.
+          Plus <code style="color:var(--fg)">inspect_group</code>, <code style="color:var(--fg)">inspect_file</code>, <code style="color:var(--fg)">inspect_stats</code>, and <code style="color:var(--fg)">inspect_risk_map</code>.
+          Added <code style="color:var(--fg)">ReviewVerdict</code> (4 levels: LikelyApprovable, StandardReview, RequiresReview, RequiresCarefulReview) as a quick signal for agents.
+          New <code style="color:var(--fg)">--format markdown</code> for all commands.
+          Extended <code style="color:var(--fg)">EntityReview</code> with before/after content and dependency names for drill-down.
+        </p>
+        <p class="changelog-stats">+820 lines &bull; 12 files &bull; 3 crates (up from 2) &bull; 12 tests passing</p>
+        <div class="changelog-mistake">
+          <strong>Lesson: cache the analysis, not the tools.</strong> MCP tools like inspect_entity and inspect_group are drill-downs into the same analysis that inspect_triage already computed. Re-running the full 4-phase pipeline for each tool call would multiply latency by 6x. We cache the ReviewResult keyed by (repo_path, target) so sequential drill-downs are instant. The expensive work happens once in triage; everything else is just a filtered view.
+        </div>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-title">
+          <span class="changelog-sha">33c94fb</span>
+          <span class="changelog-tag bench">bench</span>
+          Greptile benchmark: 83.5% HC recall
+        </div>
+        <p class="changelog-body">
+          Ran inspect against the full <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile benchmark</a>: 50 PRs, 5 repos, 97 golden comments from human reviewers.
+          83.5% High/Critical recall. 100% recall at the Medium threshold, meaning every golden comment fell within a flagged entity.
+          Per-repo: Keycloak (Java) 100%, Cal.com (TypeScript) 91%, Grafana (Go) 81%, Discourse (Ruby) 79%, Sentry (Python) 67%.
+          Beats Augment (55%), Greptile (45%), CodeRabbit (43%), Cursor (41%), and Copilot (34%).
+          No LLM, no API key, runs locally in milliseconds.
+        </p>
+        <p class="changelog-stats">50 PRs &bull; 5 repos &bull; 97 golden comments &bull; 83.5% HC recall &bull; zero cost</p>
+        <div class="changelog-mistake">
+          <strong>Lesson: the graph is the moat.</strong> LLM-based tools look at code content. inspect looks at the dependency graph. A function that 12 other entities depend on is risky regardless of how the diff looks. This is why a zero-cost static tool beats tools backed by frontier models: the signal comes from structure, not language understanding. Content tells you what changed; the graph tells you what matters.
+        </div>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-title">
+          <span class="changelog-sha">9731d47</span>
+          <span class="changelog-tag rewrite">rewrite</span>
+          Graph-centric risk scoring
+        </div>
+        <p class="changelog-body">
+          Rewrote the risk scoring formula. Previously, classification was the primary signal: functional changes scored high, text changes scored low, regardless of context.
+          Now dependents and blast radius are the primary discriminators. A functional change to a leaf function with zero dependents scores Medium. A syntax change to a hub function with 50 dependents scores High.
+          Cosmetic discount increased from 0.7x to 0.2x.
+        </p>
+        <p class="changelog-stats">Risk formula rewrite &bull; AACR-Bench: 48.3% HC recall (was ~30% before) &bull; 78.2% HC+M recall</p>
+        <div class="changelog-mistake">
+          <strong>Mistake: classification-first scoring doesn't work.</strong> The first risk formula weighted classification at 55% and graph signals at 30%. This meant every functional change scored High, flooding the output with noise. A one-line logic fix in a helper function with no dependents isn't risky, but classification-first scoring can't tell the difference. Flipping the formula to graph-first (dependents + blast radius as primary) cut false positives in half and jumped AACR-Bench HC recall from ~30% to 48%.
+        </div>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-title">
+          <span class="changelog-sha">f403560</span>
+          <span class="changelog-tag perf">perf</span>
+          Parallel graph building, large codebase support
+        </div>
+        <p class="changelog-body">
+          inspect was built on small repos (sem, weave). Then we ran it on Sentry: 16,000 files, 100,000+ entities. It took 40 seconds.
+          HashSet for O(1) lookups in classify and analyze. Replaced full BFS collection with <code style="color:var(--fg)">impact_count()</code> that counts without allocating. Added per-phase timing (diff, graph build, scoring) so bottlenecks are visible.
+          Sentry dropped from 40s to ~4s. Small repos stayed under 50ms.
+        </p>
+        <p class="changelog-stats">40s &rarr; 4s (Sentry, 16k files) &bull; per-phase timing &bull; parallel graph build</p>
+        <div class="changelog-mistake">
+          <strong>Mistake: building for small repos only.</strong> We tested on sem (25 files), weave (80 files), and agenthub (130 files). Everything was fast, so we assumed it was fine. The first time we pointed inspect at a real open-source project (Sentry), the graph build alone took 35 seconds because we were doing O(n&sup2;) lookups with Vec::contains instead of HashSet::contains. Always test on repos 100x bigger than your own.
+        </p>
+        </div>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-title">
+          <span class="changelog-sha">80fb20e</span>
+          <span class="changelog-tag feat">feat</span>
+          Full-repo entity graph + bench command
+        </div>
+        <p class="changelog-body">
+          Entity graph now covers all source files (via <code style="color:var(--fg)">git ls-files</code>) instead of only changed files.
+          Before this, blast radius was always zero because dependents from unchanged files weren't in the graph.
+          New <code style="color:var(--fg)">inspect bench</code> command iterates commits and collects aggregate metrics.
+          First real benchmark numbers: agenthub had a max blast radius of 595 and 70.7% cross-file impact. 96.8% of commits in sem contained tangled logical changes.
+        </p>
+        <p class="changelog-stats">bench command &bull; full-repo graph &bull; max blast radius 595 &bull; 70.7% cross-file impact</p>
+        <div class="changelog-mistake">
+          <strong>Mistake: graphing only changed files.</strong> The initial implementation built the entity graph from just the files that appeared in the diff. This made blast radius and dependent count always zero, because the callers were in unchanged files that weren't in the graph. It took an embarrassingly long time to realize why every entity scored Low. The fix was obvious: build the graph from the full repo via git ls-files, then score the changed entities against it.
+        </div>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-title">
+          <span class="changelog-sha">bdfa473</span>
+          <span class="changelog-tag feat">feat</span>
+          Initial release
+        </div>
+        <p class="changelog-body">
+          First working version. Cargo workspace: <code style="color:var(--fg)">inspect-core</code> (library) + <code style="color:var(--fg)">inspect-cli</code> (binary).
+          ConGra change classification (7 variants), risk scoring, Union-Find untangling into logical groups.
+          Three commands: <code style="color:var(--fg)">inspect diff</code>, <code style="color:var(--fg)">inspect pr</code>, <code style="color:var(--fg)">inspect file</code>.
+          Terminal (colored) + JSON output. 10 tests.
+        </p>
+        <p class="changelog-stats">Cargo workspace &bull; 2 crates &bull; 10 tests &bull; 3 commands</p>
+        <div class="changelog-mistake">
+          <strong>Lesson: Union-Find untangling is underrated.</strong> We almost shipped without it. The initial version just sorted entities by risk. But a commit that touches auth, caching, and logging has three independent changes that shouldn't be reviewed together. Union-Find on dependency edges between changed entities separates them into groups. 96.8% of commits in sem were tangled. Without untangling, reviewers have to mentally separate the changes themselves.
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>Built by <a href="https://ataraxy-labs.com">Ataraxy Labs</a></p>
+    </footer>
+  </div>
+</body>
+</html>
