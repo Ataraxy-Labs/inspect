@@ -62,7 +62,7 @@ export default function Home() {
       <section className="px-6 py-16 border-t border-white/10">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            Benchmark: 8,870 Entities Across 89 Commits
+            Benchmark: 9,182 Entities Across 102 Commits
           </h2>
           <p className="text-gray-400 mb-8 max-w-3xl">
             Real results from running <code>inspect bench</code> against three Rust codebases.
@@ -87,9 +87,9 @@ export default function Home() {
 
           <div className="grid md:grid-cols-3 gap-6 mb-8">
             {[
-              { repo: "sem", commits: 31, entities: "4,955", blast: "0", hc: "15.1%", cross: "0%" },
-              { repo: "weave", commits: 39, entities: "2,803", blast: "171", hc: "40.6%", cross: "10.6%" },
-              { repo: "agenthub", commits: 19, entities: "1,112", blast: "595", hc: "77.1%", cross: "70.7%" },
+              { repo: "sem", commits: 38, entities: "5,216", blast: "0", hc: "0%", cross: "0%" },
+              { repo: "weave", commits: 45, entities: "2,854", blast: "176", hc: "6.4%", cross: "10.9%" },
+              { repo: "agenthub", commits: 19, entities: "1,112", blast: "595", hc: "36.0%", cross: "70.7%" },
             ].map((r) => (
               <div key={r.repo} className="border border-white/10 rounded-lg p-6">
                 <h4 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>{r.repo} ({r.commits} commits)</h4>
@@ -104,7 +104,54 @@ export default function Home() {
           </div>
 
           <p className="text-gray-500 text-sm">
-            Blast radius 595 means one entity change could affect 595 other entities transitively. A line-level diff won&apos;t tell you this. 70.7% cross-file impact means reviewing one file in isolation misses the picture. All three repos analyzed in under 50ms each. Powered by sem-core v0.3.0 with xxHash64 structural hashing and LTO-optimized builds.
+            Blast radius 595 means one entity change could affect 595 other entities transitively. A line-level diff won&apos;t tell you this. 70.7% cross-file impact means reviewing one file in isolation misses the picture.
+          </p>
+        </div>
+      </section>
+
+      {/* Speed */}
+      <section className="px-6 py-16 border-t border-white/10">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
+            Speed
+          </h2>
+          <p className="text-gray-400 mb-8 max-w-3xl">
+            Entity extraction, dependency graph construction, change classification, risk scoring, and commit untangling. All in milliseconds. No API calls, everything local.
+          </p>
+          <div className="grid md:grid-cols-2 gap-8 mb-8">
+            <div>
+              <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>Single commit review</h3>
+              <div className="space-y-3">
+                {[
+                  { repo: "sem", desc: "25 files", time: "24ms" },
+                  { repo: "weave", desc: "80 files", time: "30ms" },
+                  { repo: "agenthub", desc: "130 files, 9K LOC", time: "49ms" },
+                ].map((r) => (
+                  <div key={r.repo} className="flex justify-between items-center border-b border-white/5 pb-2">
+                    <span className="text-gray-400 text-sm">{r.repo} <span className="text-gray-600">({r.desc})</span></span>
+                    <span className="text-white font-semibold" style={{ fontFamily: "var(--font-heading)" }}>{r.time}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>Full repo history</h3>
+              <div className="space-y-3">
+                {[
+                  { repo: "sem", desc: "38 commits, 5K entities", time: "0.87s" },
+                  { repo: "agenthub", desc: "19 commits, 1K entities", time: "0.56s" },
+                  { repo: "weave", desc: "45 commits, 3K entities", time: "1.81s" },
+                ].map((r) => (
+                  <div key={r.repo} className="flex justify-between items-center border-b border-white/5 pb-2">
+                    <span className="text-gray-400 text-sm">{r.repo} <span className="text-gray-600">({r.desc})</span></span>
+                    <span className="text-white font-semibold" style={{ fontFamily: "var(--font-heading)" }}>{r.time}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <p className="text-gray-500 text-sm">
+            Powered by <a href="https://ataraxy-labs.com/sem" className="text-white underline hover:text-gray-300">sem-core</a> v0.3.0 with xxHash64 structural hashing, parallel tree-sitter parsing via rayon, cached git tree resolution, and LTO-optimized release builds.
           </p>
         </div>
       </section>
