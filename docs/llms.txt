@@ -18,11 +18,34 @@ inspect analyzes Git diffs at the entity level (functions, structs, classes, tra
 - `inspect file <path>`: Review uncommitted changes in a file
 - `inspect bench --repo <path>`: Benchmark entity-level review across a repo's history
 
+All commands support `--format json` and `--format markdown` for machine-readable output.
+
+## MCP Server
+
+6 tools for agent integration:
+- `inspect_triage`: Primary entry point. Full analysis sorted by risk with verdict.
+- `inspect_entity`: Drill into one entity: before/after content, dependents, dependencies.
+- `inspect_group`: Get all entities in a logical change group.
+- `inspect_file`: Scope review to a single file.
+- `inspect_stats`: Lightweight summary: stats, verdict, timing. No entity details.
+- `inspect_risk_map`: File-level risk heatmap with per-file aggregate scores.
+
+Build: `cargo build -p inspect-mcp`
+
+## Review Verdict
+
+Returned by inspect_triage and inspect_stats:
+- `likely_approvable`: All changes are cosmetic
+- `standard_review`: Normal changes, no high-risk entities
+- `requires_review`: High-risk entities present
+- `requires_careful_review`: Critical-risk entities present
+
 ## Architecture
 
-Built in Rust. Two crates:
-- `inspect-core`: Analysis engine (classify, risk score, untangle)
-- `inspect-cli`: CLI interface with terminal and JSON formatters
+Built in Rust. Three crates:
+- `inspect-core`: Analysis engine (classify, risk score, untangle, review verdict)
+- `inspect-cli`: CLI interface with terminal, JSON, and markdown formatters
+- `inspect-mcp`: MCP server exposing 6 tools for agent integration
 
 Depends on `sem-core` for entity extraction (tree-sitter parsers for 13 languages) and entity dependency graph.
 

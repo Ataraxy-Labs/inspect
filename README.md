@@ -73,6 +73,7 @@ inspect diff abc123              # specific commit
 inspect diff HEAD~1 --context    # show dependency details
 inspect diff HEAD~1 --min-risk high  # only high/critical
 inspect diff HEAD~1 --format json    # JSON output
+inspect diff HEAD~1 --format markdown  # markdown output (for agents)
 ```
 
 ### `inspect pr <number>`
@@ -100,6 +101,45 @@ Benchmark entity-level review across a repo's commit history. Outputs JSON with 
 
 ```bash
 inspect bench --repo ~/my-project --limit 50
+```
+
+## MCP Server
+
+inspect ships an MCP server so any coding agent (Claude Code, Cursor, etc.) can use entity-level review as a tool.
+
+```bash
+# Build the MCP server
+cargo build -p inspect-mcp
+
+# Binary at target/debug/inspect-mcp
+```
+
+**6 tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `inspect_triage` | Primary entry point. Full analysis sorted by risk with verdict. |
+| `inspect_entity` | Drill into one entity: before/after content, dependents, dependencies. |
+| `inspect_group` | Get all entities in a logical change group. |
+| `inspect_file` | Scope review to a single file. |
+| `inspect_stats` | Lightweight summary: stats, verdict, timing. No entity details. |
+| `inspect_risk_map` | File-level risk heatmap with per-file aggregate scores. |
+
+**Review verdict** (returned by triage and stats):
+- `likely_approvable`: All changes are cosmetic
+- `standard_review`: Normal changes, no high-risk entities
+- `requires_review`: High-risk entities present
+- `requires_careful_review`: Critical-risk entities present
+
+Add to your Claude Code config:
+```json
+{
+  "mcpServers": {
+    "inspect": {
+      "command": "/path/to/inspect-mcp"
+    }
+  }
+}
 ```
 
 ## Benchmark Results
@@ -161,10 +201,11 @@ Powered by tree-sitter parsers from [sem-core](https://github.com/Ataraxy-Labs/s
 
 ## Architecture
 
-Two crates:
+Three crates:
 
-- **inspect-core**: Analysis engine. Entity extraction (via sem-core), change classification, risk scoring, Union-Find untangling.
-- **inspect-cli**: CLI interface with terminal (colored) and JSON formatters.
+- **inspect-core**: Analysis engine. Entity extraction (via sem-core), change classification, risk scoring, Union-Find untangling, review verdict.
+- **inspect-cli**: CLI interface with terminal, JSON, and markdown formatters.
+- **inspect-mcp**: MCP server exposing 6 tools for agent integration.
 
 ```
 Git diff
@@ -172,7 +213,8 @@ Git diff
   -> classify: ConGra taxonomy (text/syntax/functional)
   -> risk: score from classification + blast radius + dependents + public API
   -> untangle: Union-Find grouping on dependency edges
-  -> format: terminal or JSON output
+  -> verdict: LikelyApprovable / StandardReview / RequiresReview / RequiresCarefulReview
+  -> format: terminal, JSON, or markdown output
 ```
 
 ## Part of the Ataraxy Labs stack

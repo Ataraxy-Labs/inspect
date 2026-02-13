@@ -29,7 +29,7 @@
     <!-- Commands -->
     <section>
       <h2>Commands</h2>
-      <p class="section-desc">All commands support <code style="color:var(--cyan);background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;">--format json</code> for machine-readable output.</p>
+      <p class="section-desc">All commands support <code style="color:var(--cyan);background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;">--format json</code> and <code style="color:var(--cyan);background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;">--format markdown</code> for machine-readable output.</p>
 
       <div class="cmd-doc">
         <div class="cmd-doc-header">
@@ -39,7 +39,7 @@
         <div class="cmd-doc-flags">
           <div class="flag"><code>--context</code> <span>Show dependency details for each entity</span></div>
           <div class="flag"><code>--min-risk &lt;level&gt;</code> <span>Filter by minimum risk (low, medium, high, critical)</span></div>
-          <div class="flag"><code>--format &lt;fmt&gt;</code> <span>terminal (default) or json</span></div>
+          <div class="flag"><code>--format &lt;fmt&gt;</code> <span>terminal (default), json, or markdown</span></div>
         </div>
       </div>
 
@@ -173,6 +173,46 @@
           <tr><td>C#</td><td>.cs</td><td>methods, classes, interfaces, enums, structs</td></tr>
           <tr><td>PHP</td><td>.php</td><td>functions, classes, methods, interfaces, traits, enums</td></tr>
           <tr><td>Fortran</td><td>.f90 .f95 .f03 .f08</td><td>functions, subroutines, modules, programs</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- MCP Server -->
+    <section>
+      <h2>MCP server</h2>
+      <p class="section-desc">
+        inspect ships an MCP server so any coding agent (Claude Code, Cursor, etc.) can use entity-level review as a tool. Build with <code style="color:var(--cyan);background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;">cargo build -p inspect-mcp</code>.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Tool</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code style="color:var(--cyan)">inspect_triage</code></td><td>Primary entry point. Full analysis sorted by risk with verdict.</td></tr>
+          <tr><td><code style="color:var(--cyan)">inspect_entity</code></td><td>Drill into one entity: before/after content, dependents, dependencies.</td></tr>
+          <tr><td><code style="color:var(--cyan)">inspect_group</code></td><td>Get all entities in a logical change group.</td></tr>
+          <tr><td><code style="color:var(--cyan)">inspect_file</code></td><td>Scope review to a single file.</td></tr>
+          <tr><td><code style="color:var(--cyan)">inspect_stats</code></td><td>Lightweight summary: stats, verdict, timing. No entity details.</td></tr>
+          <tr><td><code style="color:var(--cyan)">inspect_risk_map</code></td><td>File-level risk heatmap with per-file aggregate scores.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Review Verdict -->
+    <section>
+      <h2>Review verdict</h2>
+      <p class="section-desc">Returned by <code style="color:var(--cyan);background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;">inspect_triage</code> and <code style="color:var(--cyan);background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;">inspect_stats</code>. A quick signal for agents and humans.</p>
+
+      <table>
+        <thead>
+          <tr><th>Verdict</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span style="color:var(--green)">likely_approvable</span></td><td>All changes are cosmetic (comments, whitespace, formatting)</td></tr>
+          <tr><td><span style="color:var(--fg)">standard_review</span></td><td>Normal changes, no high-risk entities</td></tr>
+          <tr><td><span style="color:var(--orange)">requires_review</span></td><td>High-risk entities present</td></tr>
+          <tr><td><span style="color:var(--red)">requires_careful_review</span></td><td>Critical-risk entities present</td></tr>
         </tbody>
       </table>
     </section>
