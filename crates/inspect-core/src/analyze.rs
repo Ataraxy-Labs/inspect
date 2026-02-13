@@ -66,14 +66,23 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         let blast_radius = graph.impact_count(&change.entity_id, 10_000);
 
         let classification = classify_change(change);
-        let after_content = change.after_content.as_deref();
-        let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content);
+        let after_content_ref = change.after_content.as_deref();
+        let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content_ref);
 
         let (start_line, end_line) = graph
             .entities
             .get(&change.entity_id)
             .map(|e| (e.start_line, e.end_line))
             .unwrap_or((0, 0));
+
+        let dependent_names: Vec<(String, String)> = dependents
+            .iter()
+            .map(|e| (e.name.clone(), e.file_path.clone()))
+            .collect();
+        let dependency_names: Vec<(String, String)> = dependencies
+            .iter()
+            .map(|e| (e.name.clone(), e.file_path.clone()))
+            .collect();
 
         let mut review = EntityReview {
             entity_id: change.entity_id.clone(),
@@ -92,6 +101,10 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             group_id: 0,
             start_line,
             end_line,
+            before_content: change.before_content.clone(),
+            after_content: change.after_content.clone(),
+            dependent_names,
+            dependency_names,
         };
 
         review.risk_score = compute_risk_score(&review, total_graph_entities);

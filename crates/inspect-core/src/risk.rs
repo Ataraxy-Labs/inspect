@@ -1,6 +1,44 @@
 use sem_core::model::change::ChangeType;
+use serde::{Deserialize, Serialize};
 
-use crate::types::{ChangeClassification, EntityReview, RiskLevel};
+use crate::types::{ChangeClassification, EntityReview, ReviewResult, RiskLevel};
+
+/// Quick signal for agents about how much review attention a change needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReviewVerdict {
+    LikelyApprovable,
+    StandardReview,
+    RequiresReview,
+    RequiresCarefulReview,
+}
+
+impl std::fmt::Display for ReviewVerdict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LikelyApprovable => write!(f, "likely_approvable"),
+            Self::StandardReview => write!(f, "standard_review"),
+            Self::RequiresReview => write!(f, "requires_review"),
+            Self::RequiresCarefulReview => write!(f, "requires_careful_review"),
+        }
+    }
+}
+
+/// Suggest a review verdict based on the analysis result.
+pub fn suggest_verdict(result: &ReviewResult) -> ReviewVerdict {
+    if result.stats.by_risk.critical > 0 {
+        return ReviewVerdict::RequiresCarefulReview;
+    }
+    if result.stats.by_risk.high > 0 {
+        return ReviewVerdict::RequiresReview;
+    }
+    // All cosmetic = likely approvable
+    let all_cosmetic = !result.entity_reviews.is_empty()
+        && result.entity_reviews.iter().all(|r| r.structural_change == Some(false));
+    if all_cosmetic {
+        return ReviewVerdict::LikelyApprovable;
+    }
+    ReviewVerdict::StandardReview
+}
 
 /// Compute a risk score (0.0 to 1.0) for an entity review.
 ///
@@ -132,6 +170,10 @@ mod tests {
             group_id: 0,
             start_line: 1,
             end_line: 10,
+            before_content: None,
+            after_content: None,
+            dependent_names: vec![],
+            dependency_names: vec![],
         }
     }
 

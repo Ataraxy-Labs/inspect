@@ -56,6 +56,7 @@ pub fn run(args: FileArgs) {
             match args.format {
                 OutputFormat::Terminal => formatters::terminal::print(&result, args.context),
                 OutputFormat::Json => formatters::json::print(&result),
+                OutputFormat::Markdown => formatters::markdown::print(&result, args.context),
             }
         }
         Err(e) => {

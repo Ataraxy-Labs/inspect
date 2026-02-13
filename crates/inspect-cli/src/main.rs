@@ -26,6 +26,7 @@ enum Commands {
 pub enum OutputFormat {
     Terminal,
     Json,
+    Markdown,
 }
 
 fn main() {

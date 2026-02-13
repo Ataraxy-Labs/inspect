@@ -74,6 +74,16 @@ pub struct EntityReview {
     pub group_id: usize,
     pub start_line: usize,
     pub end_line: usize,
+    /// Source content before the change (None for Added entities)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_content: Option<String>,
+    /// Source content after the change (None for Deleted entities)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_content: Option<String>,
+    /// Entities that depend on this entity: (name, file_path)
+    pub dependent_names: Vec<(String, String)>,
+    /// Entities this entity depends on: (name, file_path)
+    pub dependency_names: Vec<(String, String)>,
 }
 
 /// A logical group of related changes (from untangling).

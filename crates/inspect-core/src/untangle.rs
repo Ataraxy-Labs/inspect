@@ -166,6 +166,10 @@ mod tests {
             group_id: 0,
             start_line: 1,
             end_line: 10,
+            before_content: None,
+            after_content: None,
+            dependent_names: vec![],
+            dependency_names: vec![],
         }
     }
 
