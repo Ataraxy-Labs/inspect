@@ -88,11 +88,9 @@ Parallel entity extraction via rayon, zero-allocation BFS, capped graph traversa
 Single commit review:
 - sem (25 files, 65 entities changed): 6ms
 - weave (80 files, 89 entities changed): 6ms
-- agenthub (130 files, 95 entities changed): 35ms
 - inspect (50 files, large commit): 67ms
 
 Full repo history (inspect bench):
-- agenthub (19 commits, 1,112 entities): 0.55s
 - sem (38 commits, 5,216 entities): 0.57s
 - weave (45 commits, 2,854 entities): 1.33s
 

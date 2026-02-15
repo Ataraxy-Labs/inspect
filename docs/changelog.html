@@ -119,7 +119,7 @@
         </p>
         <p class="changelog-stats">40s &rarr; 4s (Sentry, 16k files) &bull; per-phase timing &bull; parallel graph build</p>
         <div class="changelog-mistake">
-          <strong>Mistake: building for small repos only.</strong> We tested on sem (25 files), weave (80 files), and agenthub (130 files). Everything was fast, so we assumed it was fine. The first time we pointed inspect at a real open-source project (Sentry), the graph build alone took 35 seconds because we were doing O(n&sup2;) lookups with Vec::contains instead of HashSet::contains. Always test on repos 100x bigger than your own.
+          <strong>Mistake: building for small repos only.</strong> We tested on sem (25 files) and weave (80 files). Everything was fast, so we assumed it was fine. The first time we pointed inspect at a real open-source project (Sentry), the graph build alone took 35 seconds because we were doing O(n&sup2;) lookups with Vec::contains instead of HashSet::contains. Always test on repos 100x bigger than your own.
         </p>
         </div>
       </div>
@@ -134,9 +134,9 @@
           Entity graph now covers all source files (via <code style="color:var(--fg)">git ls-files</code>) instead of only changed files.
           Before this, blast radius was always zero because dependents from unchanged files weren't in the graph.
           New <code style="color:var(--fg)">inspect bench</code> command iterates commits and collects aggregate metrics.
-          First real benchmark numbers: agenthub had a max blast radius of 595 and 70.7% cross-file impact. 96.8% of commits in sem contained tangled logical changes.
+          96.8% of commits in sem contained tangled logical changes.
         </p>
-        <p class="changelog-stats">bench command &bull; full-repo graph &bull; max blast radius 595 &bull; 70.7% cross-file impact</p>
+        <p class="changelog-stats">bench command &bull; full-repo graph &bull; tangled commit detection</p>
         <div class="changelog-mistake">
           <strong>Mistake: graphing only changed files.</strong> The initial implementation built the entity graph from just the files that appeared in the diff. This made blast radius and dependent count always zero, because the callers were in unchanged files that weren't in the graph. It took an embarrassingly long time to realize why every entity scored Low. The fix was obvious: build the graph from the full repo via git ls-files, then score the changed entities against it.
         </div>
