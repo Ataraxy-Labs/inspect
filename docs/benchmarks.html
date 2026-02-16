@@ -475,18 +475,18 @@
       <div class="stat-cards">
         <div class="stat-card" style="border-color: var(--green);">
           <div class="stat-value" style="color: var(--green);">95.0%</div>
-          <div class="stat-label">inspect + LLM (union)</div>
-          <div class="stat-detail">run both, merge findings</div>
+          <div class="stat-label">inspect + LLM lenient</div>
+          <div class="stat-detail">74.5% strict</div>
         </div>
         <div class="stat-card" style="border-color: var(--cyan);">
           <div class="stat-value" style="color: var(--cyan);">84.4%</div>
-          <div class="stat-label">inspect alone</div>
-          <div class="stat-detail">0 tokens, &lt;1s, free</div>
+          <div class="stat-label">inspect alone lenient</div>
+          <div class="stat-detail">63.1% strict</div>
         </div>
         <div class="stat-card" style="border-color: var(--purple);">
           <div class="stat-value" style="color: var(--purple);">73.0%</div>
-          <div class="stat-label">LLM alone (full diff)</div>
-          <div class="stat-detail">410K tokens per run</div>
+          <div class="stat-label">LLM alone lenient</div>
+          <div class="stat-detail">42.6% strict</div>
         </div>
       </div>
 
@@ -498,7 +498,8 @@
               <th>Approach</th>
               <th>Strict Recall</th>
               <th>Lenient Recall</th>
-              <th>HC Recall</th>
+              <th>HC Strict</th>
+              <th>HC Lenient</th>
               <th>Tokens</th>
             </tr>
           </thead>
@@ -507,6 +508,7 @@
               <td><strong style="color:var(--accent)">inspect + LLM</strong> (union)</td>
               <td class="win">74.5%</td>
               <td class="win">95.0%</td>
+              <td class="win">90.2%</td>
               <td class="win">100%</td>
               <td>410K</td>
             </tr>
@@ -514,6 +516,7 @@
               <td>inspect alone (graph triage)</td>
               <td>63.1%</td>
               <td>84.4%</td>
+              <td>70.6%</td>
               <td>92.2%</td>
               <td class="win">0</td>
             </tr>
@@ -521,6 +524,7 @@
               <td>LLM alone (Claude Haiku + full diff)</td>
               <td>42.6%</td>
               <td>73.0%</td>
+              <td>56.9%</td>
               <td>90.2%</td>
               <td>410K</td>
             </tr>
@@ -528,45 +532,67 @@
         </table>
       </div>
 
-      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Per-severity (lenient recall)</h3>
+      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Per-severity breakdown</h3>
       <div class="comparison-table">
         <table>
           <thead>
             <tr>
               <th>Severity</th>
               <th>n</th>
-              <th>inspect + LLM</th>
-              <th>inspect alone</th>
-              <th>LLM alone</th>
+              <th colspan="2">inspect + LLM</th>
+              <th colspan="2">inspect alone</th>
+              <th colspan="2">LLM alone</th>
+            </tr>
+            <tr>
+              <th></th>
+              <th></th>
+              <th>Strict</th>
+              <th>Lenient</th>
+              <th>Strict</th>
+              <th>Lenient</th>
+              <th>Strict</th>
+              <th>Lenient</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>Critical</td>
               <td>9</td>
+              <td class="win">88.9%</td>
               <td class="win">100%</td>
+              <td>66.7%</td>
               <td>88.9%</td>
+              <td>77.8%</td>
               <td>77.8%</td>
             </tr>
             <tr>
               <td>High</td>
               <td>42</td>
+              <td class="win">90.5%</td>
               <td class="win">100%</td>
+              <td>71.4%</td>
               <td>92.9%</td>
+              <td>52.4%</td>
               <td>90.5%</td>
             </tr>
             <tr>
               <td>Medium</td>
               <td>49</td>
+              <td class="win">69.4%</td>
               <td class="win">95.9%</td>
+              <td>63.3%</td>
               <td>83.7%</td>
+              <td>34.7%</td>
               <td>67.3%</td>
             </tr>
             <tr>
               <td>Low</td>
               <td>41</td>
+              <td class="win">61.0%</td>
               <td class="win">87.8%</td>
+              <td>53.7%</td>
               <td>75.6%</td>
+              <td>34.1%</td>
               <td>61.0%</td>
             </tr>
           </tbody>
@@ -574,7 +600,39 @@
       </div>
 
       <div class="bench-group" style="margin-top: 32px;">
-        <h3>Lenient recall comparison (visual)</h3>
+        <h3>Strict recall</h3>
+        <div class="bench-row">
+          <div class="bench-label">
+            <span class="name"><strong style="color:var(--accent)">inspect + LLM</strong></span>
+            <span class="value" style="color:var(--green)">74.5%</span>
+          </div>
+          <div class="bench-bar-track">
+            <div class="bench-bar inspect-bar" data-width="74.5">74.5%</div>
+          </div>
+        </div>
+        <div class="bench-row">
+          <div class="bench-label">
+            <span class="name">inspect alone</span>
+            <span class="value" style="color:var(--cyan)">63.1%</span>
+          </div>
+          <div class="bench-bar-track">
+            <div class="bench-bar other-bar" data-width="63.1">63.1%</div>
+          </div>
+        </div>
+        <div class="bench-row">
+          <div class="bench-label">
+            <span class="name">LLM alone</span>
+            <span class="value">42.6%</span>
+          </div>
+          <div class="bench-bar-track">
+            <div class="bench-bar dim-bar" data-width="42.6">42.6%</div>
+          </div>
+        </div>
+        <div class="bench-note">exact entity match only</div>
+      </div>
+
+      <div class="bench-group" style="margin-top: 24px;">
+        <h3>Lenient recall</h3>
         <div class="bench-row">
           <div class="bench-label">
             <span class="name"><strong style="color:var(--accent)">inspect + LLM</strong></span>
@@ -595,7 +653,7 @@
         </div>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name">LLM alone (full diff)</span>
+            <span class="name">LLM alone</span>
             <span class="value">73.0%</span>
           </div>
           <div class="bench-bar-track">
