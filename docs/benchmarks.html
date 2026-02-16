@@ -190,23 +190,28 @@
     <section>
       <h2>Greptile benchmark</h2>
       <p class="section-desc">
-        <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's benchmark</a>: 50 PRs with planted bugs across 5 repos (Sentry, Cal.com, Grafana, Keycloak, Discourse). Ground truth from <a href="https://github.com/ai-code-review-evaluations/golden_comments" style="color:var(--cyan)">Augment's expanded golden comments</a> (97 non-low issues). We ran inspect on all 50 PRs.
+        <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's benchmark</a>: 50 PRs with planted bugs across 5 repos (Sentry, Cal.com, Grafana, Keycloak, Discourse). Ground truth from <a href="https://github.com/ai-code-review-evaluations/golden_comments" style="color:var(--cyan)">Augment's expanded golden comments</a> (141 golden comments, 51 High/Critical). We ran inspect on all 50 PRs and Greptile's API on the same PRs.
       </p>
 
       <div class="stat-cards">
         <div class="stat-card" style="border-color: var(--green);">
-          <div class="stat-value" style="color: var(--green);">83.5%</div>
-          <div class="stat-label">High/Critical recall</div>
-          <div class="stat-detail">50 PRs, 97 golden comments</div>
+          <div class="stat-value" style="color: var(--green);">84.4%</div>
+          <div class="stat-label">lenient recall (all 141)</div>
+          <div class="stat-detail">match + partial across all severities</div>
         </div>
         <div class="stat-card" style="border-color: var(--cyan);">
-          <div class="stat-value" style="color: var(--cyan);">100%</div>
-          <div class="stat-label">High/Critical + Medium recall</div>
-          <div class="stat-detail">every bug in a flagged entity</div>
+          <div class="stat-value" style="color: var(--cyan);">92.2%</div>
+          <div class="stat-label">High/Critical lenient recall</div>
+          <div class="stat-detail">51 golden comments</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--purple);">
+          <div class="stat-value" style="color: var(--purple);">63.1%</div>
+          <div class="stat-label">strict recall (all 141)</div>
+          <div class="stat-detail">exact entity match only</div>
         </div>
       </div>
 
-      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Per-repo results</h3>
+      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Per-repo results (lenient recall)</h3>
       <div class="comparison-table">
         <table>
           <thead>
@@ -215,8 +220,8 @@
               <th>Language</th>
               <th>PRs</th>
               <th>Golden Comments</th>
-              <th>High/Critical Recall</th>
-              <th>High/Critical + Medium Recall</th>
+              <th>High/Critical</th>
+              <th>All Severities</th>
             </tr>
           </thead>
           <tbody>
@@ -224,49 +229,50 @@
               <td>Keycloak</td>
               <td>Java</td>
               <td>10</td>
-              <td>18</td>
+              <td>26</td>
               <td class="win">100%</td>
-              <td class="win">100%</td>
+              <td class="win">92.3%</td>
             </tr>
             <tr>
               <td>Cal.com</td>
               <td>TypeScript</td>
               <td>10</td>
-              <td>23</td>
-              <td class="win">91%</td>
+              <td>31</td>
+              <td class="win">85.7%</td>
+              <td class="win">90.3%</td>
+            </tr>
+            <tr>
+              <td>Sentry</td>
+              <td>Python</td>
+              <td>12</td>
+              <td>34</td>
               <td class="win">100%</td>
+              <td class="win">85.3%</td>
             </tr>
             <tr>
               <td>Grafana</td>
               <td>Go</td>
               <td>10</td>
-              <td>16</td>
-              <td class="win">81%</td>
-              <td class="win">100%</td>
+              <td>22</td>
+              <td>80.0%</td>
+              <td>77.3%</td>
             </tr>
             <tr>
               <td>Discourse</td>
               <td>Ruby</td>
               <td>10</td>
-              <td>19</td>
-              <td class="win">79%</td>
+              <td>28</td>
               <td class="win">100%</td>
-            </tr>
-            <tr>
-              <td>Sentry</td>
-              <td>Python</td>
-              <td>10</td>
-              <td>21</td>
-              <td>67%</td>
-              <td class="win">100%</td>
+              <td>75.0%</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">How other tools scored (Augment's re-evaluation)</h3>
+      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Head-to-head: inspect vs Greptile API</h3>
       <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
-        <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment Code</a> re-evaluated all tools on the same benchmark with expanded ground truth and precision/recall metrics. Greptile's original 82% catch rate dropped to 45% recall under stricter evaluation.
+        We ran Greptile's API (<code style="background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--cyan)">POST /query</code> with <code style="background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--cyan)">genius: true</code>) on the same 50 PRs. 47/52 responded successfully (5 returned HTTP 500). Both tools judged with the same keyword-matching methodology on 125 golden comments.
+        Full dataset: <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
       </p>
 
       <div class="comparison-table">
@@ -275,7 +281,8 @@
             <tr>
               <th>Tool</th>
               <th>Approach</th>
-              <th>Recall</th>
+              <th>Strict Recall</th>
+              <th>Lenient Recall</th>
               <th>Precision</th>
               <th>Cost</th>
               <th>Speed</th>
@@ -283,70 +290,117 @@
           </thead>
           <tbody>
             <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> (High/Critical)</td>
+              <td><strong style="color:var(--accent)">inspect</strong></td>
               <td>graph-based triage</td>
-              <td class="win">83.5%</td>
-              <td class="mid">n/a (triage)</td>
+              <td class="win">60.0%</td>
+              <td class="win">82.4%</td>
+              <td class="win">19.8%</td>
               <td class="win">free</td>
               <td class="win">&lt;1s</td>
             </tr>
             <tr>
-              <td>Augment Code</td>
-              <td>LLM review</td>
-              <td>55%</td>
-              <td class="win">65%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>Greptile</td>
-              <td>LLM review</td>
-              <td>45%</td>
-              <td>45%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>Cursor (Bugbot)</td>
-              <td>LLM review</td>
-              <td>41%</td>
-              <td class="win">60%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>CodeRabbit</td>
-              <td>LLM review</td>
-              <td>43%</td>
-              <td>36%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>GitHub Copilot</td>
-              <td>LLM review</td>
-              <td>34%</td>
-              <td class="lose">20%</td>
-              <td>$$</td>
+              <td>Greptile (API)</td>
+              <td>LLM agentic review</td>
+              <td>38.4%</td>
+              <td>69.6%</td>
+              <td>16.4%</td>
+              <td>$0.45/PR</td>
               <td>30-60s</td>
             </tr>
           </tbody>
         </table>
       </div>
 
+      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Comparison with other tools (Augment's re-evaluation)</h3>
+      <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
+        <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment Code</a> re-evaluated all tools on the same benchmark with expanded ground truth. inspect numbers are from our own evaluation using keyword-matching on 141 golden comments.
+      </p>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Recall</th>
+              <th>Precision</th>
+              <th>F1</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect</strong> (lenient)</td>
+              <td class="win">84.4%</td>
+              <td>19.8%</td>
+              <td>32.1%</td>
+            </tr>
+            <tr>
+              <td>Augment Code Review</td>
+              <td>55%</td>
+              <td class="win">65%</td>
+              <td class="win">59%</td>
+            </tr>
+            <tr>
+              <td>Cursor (Bugbot)</td>
+              <td>41%</td>
+              <td class="win">60%</td>
+              <td>49%</td>
+            </tr>
+            <tr>
+              <td>Greptile</td>
+              <td>45%</td>
+              <td>45%</td>
+              <td>45%</td>
+            </tr>
+            <tr>
+              <td>Codex Code Review</td>
+              <td>29%</td>
+              <td class="win">68%</td>
+              <td>41%</td>
+            </tr>
+            <tr>
+              <td>CodeRabbit</td>
+              <td>43%</td>
+              <td>36%</td>
+              <td>39%</td>
+            </tr>
+            <tr>
+              <td>Claude Code</td>
+              <td>51%</td>
+              <td class="lose">23%</td>
+              <td>31%</td>
+            </tr>
+            <tr>
+              <td>GitHub Copilot</td>
+              <td>34%</td>
+              <td class="lose">20%</td>
+              <td class="lose">25%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
-        <strong style="color:var(--fg)">Different tools, same benchmark.</strong> LLM-based tools generate specific review comments. inspect identifies which entities need review. All 50 PRs evaluated across all 5 repos (Sentry 1M LOC, Grafana 2.6M LOC, Keycloak 900K LOC, Cal.com 710K LOC, Discourse 330K LOC). The approaches are complementary: use inspect to triage, then point an LLM at the flagged entities.
+        <strong style="color:var(--fg)">Different paradigm, same benchmark.</strong> LLM-based tools generate specific review comments with higher precision but lower recall. inspect identifies which entities need review. The approaches are complementary: use inspect to triage, then point an LLM at the flagged entities for 92% fewer tokens.
       </p>
 
       <div class="bench-group" style="margin-top: 32px;">
-        <h3>Recall comparison (visual)</h3>
+        <h3>Lenient recall comparison (visual)</h3>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> (High/Critical)</span>
-            <span class="value" style="color:var(--green)">83.5%</span>
+            <span class="name"><strong style="color:var(--accent)">inspect</strong></span>
+            <span class="value" style="color:var(--green)">84.4%</span>
           </div>
           <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="83.5">83.5%</div>
+            <div class="bench-bar inspect-bar" data-width="84.4">84.4%</div>
+          </div>
+        </div>
+        <div class="bench-row">
+          <div class="bench-label">
+            <span class="name">Greptile (our API test)</span>
+            <span class="value">69.6%</span>
+          </div>
+          <div class="bench-bar-track">
+            <div class="bench-bar other-bar" data-width="69.6">69.6%</div>
           </div>
         </div>
         <div class="bench-row">
@@ -360,11 +414,20 @@
         </div>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name">Greptile</span>
+            <span class="name">Claude Code</span>
+            <span class="value">51%</span>
+          </div>
+          <div class="bench-bar-track">
+            <div class="bench-bar dim-bar" data-width="51">51%</div>
+          </div>
+        </div>
+        <div class="bench-row">
+          <div class="bench-label">
+            <span class="name">Greptile (Augment eval)</span>
             <span class="value">45%</span>
           </div>
           <div class="bench-bar-track">
-            <div class="bench-bar other-bar" data-width="45">45%</div>
+            <div class="bench-bar dim-bar" data-width="45">45%</div>
           </div>
         </div>
         <div class="bench-row">
@@ -394,11 +457,11 @@
             <div class="bench-bar dim-bar" data-width="34">34%</div>
           </div>
         </div>
-        <div class="bench-note">50 PRs evaluated, same benchmark, same ground truth</div>
+        <div class="bench-note">50 PRs, 141 golden comments, same benchmark</div>
       </div>
 
       <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
-        Augment recall/precision from their <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Nov 2025 blog post</a>. inspect precision is "n/a" because it identifies entities for review rather than generating specific bug descriptions.
+        Augment/Greptile/Cursor/CodeRabbit/Copilot recall/precision from <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment's blog post</a>. Greptile API numbers from our own test (same keyword-matching judge as inspect). inspect precision = HC entities that correspond to a golden comment bug. Judge methodology: keyword extraction + identifier matching; full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
       </p>
     </section>
 
