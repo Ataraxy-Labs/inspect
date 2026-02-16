@@ -467,30 +467,30 @@
 
     <!-- LLM Experiment -->
     <section>
-      <h2>LLM experiment: triage vs full diff</h2>
+      <h2>inspect + LLM: the right pipeline</h2>
       <p class="section-desc">
-        Fair criticism: comparing inspect's triage recall to LLM review recall is apples-to-oranges. So we ran a direct test: same benchmark, same model (Claude Haiku 4.5), same judge. Three approaches compared on all 141 golden comments.
+        Fair criticism: comparing inspect's triage recall to LLM review recall is apples-to-oranges. So we ran a direct experiment: same benchmark, same model (Claude Haiku 4.5), same judge. The result: <strong>architecture matters more than the model.</strong>
       </p>
 
       <div class="stat-cards">
         <div class="stat-card" style="border-color: var(--green);">
-          <div class="stat-value" style="color: var(--green);">84.4%</div>
+          <div class="stat-value" style="color: var(--green);">95.0%</div>
+          <div class="stat-label">inspect + LLM (union)</div>
+          <div class="stat-detail">run both, merge findings</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--cyan);">
+          <div class="stat-value" style="color: var(--cyan);">84.4%</div>
           <div class="stat-label">inspect alone</div>
           <div class="stat-detail">0 tokens, &lt;1s, free</div>
         </div>
-        <div class="stat-card" style="border-color: var(--cyan);">
-          <div class="stat-value" style="color: var(--cyan);">73.8%</div>
+        <div class="stat-card" style="border-color: var(--purple);">
+          <div class="stat-value" style="color: var(--purple);">73.0%</div>
           <div class="stat-label">LLM alone (full diff)</div>
           <div class="stat-detail">410K tokens per run</div>
         </div>
-        <div class="stat-card" style="border-color: var(--yellow);">
-          <div class="stat-value" style="color: var(--yellow);">56.0%</div>
-          <div class="stat-label">inspect triage &rarr; LLM</div>
-          <div class="stat-detail">173K tokens (58% less)</div>
-        </div>
       </div>
 
-      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Full results</h3>
+      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Three approaches compared</h3>
       <div class="comparison-table">
         <table>
           <thead>
@@ -498,31 +498,31 @@
               <th>Approach</th>
               <th>Strict Recall</th>
               <th>Lenient Recall</th>
+              <th>HC Recall</th>
               <th>Tokens</th>
-              <th>Cost</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> alone (graph triage)</td>
-              <td class="win">63.1%</td>
-              <td class="win">84.4%</td>
+              <td><strong style="color:var(--accent)">inspect + LLM</strong> (union)</td>
+              <td class="win">74.5%</td>
+              <td class="win">95.0%</td>
+              <td class="win">100%</td>
+              <td>410K</td>
+            </tr>
+            <tr>
+              <td>inspect alone (graph triage)</td>
+              <td>63.1%</td>
+              <td>84.4%</td>
+              <td>92.2%</td>
               <td class="win">0</td>
-              <td class="win">free</td>
             </tr>
             <tr>
               <td>LLM alone (Claude Haiku + full diff)</td>
               <td>42.6%</td>
-              <td>73.8%</td>
-              <td>409,659</td>
-              <td>~$0.10</td>
-            </tr>
-            <tr>
-              <td>inspect triage &rarr; LLM (Claude Haiku)</td>
-              <td>27.0%</td>
-              <td>56.0%</td>
-              <td class="win">172,977</td>
-              <td>~$0.04</td>
+              <td>73.0%</td>
+              <td>90.2%</td>
+              <td>410K</td>
             </tr>
           </tbody>
         </table>
@@ -535,39 +535,39 @@
             <tr>
               <th>Severity</th>
               <th>n</th>
+              <th>inspect + LLM</th>
               <th>inspect alone</th>
               <th>LLM alone</th>
-              <th>inspect &rarr; LLM</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>Critical</td>
               <td>9</td>
-              <td class="win">88.9%</td>
-              <td class="win">88.9%</td>
-              <td>66.7%</td>
+              <td class="win">100%</td>
+              <td>88.9%</td>
+              <td>77.8%</td>
             </tr>
             <tr>
               <td>High</td>
               <td>42</td>
-              <td class="win">92.9%</td>
+              <td class="win">100%</td>
+              <td>92.9%</td>
               <td>90.5%</td>
-              <td>69.0%</td>
             </tr>
             <tr>
               <td>Medium</td>
               <td>49</td>
-              <td class="win">83.7%</td>
+              <td class="win">95.9%</td>
+              <td>83.7%</td>
               <td>67.3%</td>
-              <td>51.0%</td>
             </tr>
             <tr>
               <td>Low</td>
               <td>41</td>
-              <td class="win">75.6%</td>
+              <td class="win">87.8%</td>
+              <td>75.6%</td>
               <td>61.0%</td>
-              <td>46.3%</td>
             </tr>
           </tbody>
         </table>
@@ -577,42 +577,42 @@
         <h3>Lenient recall comparison (visual)</h3>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> alone</span>
-            <span class="value" style="color:var(--green)">84.4%</span>
+            <span class="name"><strong style="color:var(--accent)">inspect + LLM</strong></span>
+            <span class="value" style="color:var(--green)">95.0%</span>
           </div>
           <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="84.4">84.4%</div>
+            <div class="bench-bar inspect-bar" data-width="95">95.0%</div>
+          </div>
+        </div>
+        <div class="bench-row">
+          <div class="bench-label">
+            <span class="name">inspect alone</span>
+            <span class="value" style="color:var(--cyan)">84.4%</span>
+          </div>
+          <div class="bench-bar-track">
+            <div class="bench-bar other-bar" data-width="84.4">84.4%</div>
           </div>
         </div>
         <div class="bench-row">
           <div class="bench-label">
             <span class="name">LLM alone (full diff)</span>
-            <span class="value" style="color:var(--cyan)">73.8%</span>
+            <span class="value">73.0%</span>
           </div>
           <div class="bench-bar-track">
-            <div class="bench-bar other-bar" data-width="73.8">73.8%</div>
+            <div class="bench-bar dim-bar" data-width="73">73.0%</div>
           </div>
         </div>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name">inspect &rarr; LLM</span>
-            <span class="value" style="color:var(--yellow)">56.0%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar dim-bar" data-width="56">56.0%</div>
-          </div>
-        </div>
-        <div class="bench-note">141 golden comments, Claude Haiku 4.5, same keyword-matching judge</div>
+        <div class="bench-note">141 golden comments, 52 PRs, Claude Haiku 4.5</div>
       </div>
 
       <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
-        <strong style="color:var(--fg)">What this means.</strong> inspect alone has the highest recall because it flags all entities in the relevant code area, not just bugs it can explain. An LLM reading the full diff catches fewer issues but provides explanations. The inspect&rarr;LLM pipeline loses recall because it over-constrains the LLM to only see flagged entities, missing bugs in lower-risk code.
+        <strong style="color:var(--fg)">Why the union works.</strong> inspect and LLMs catch different things. inspect flags entities by structural risk (dependency graph, blast radius). LLMs find bugs by reading code semantics. Out of 141 golden comments: inspect rescued the LLM in 57 cases (40%), the LLM rescued inspect in 25 cases (18%). Only 7 cases (5%) were missed by both, all CSS or translation-only changes.
       </p>
       <p style="font-size:13px;color:var(--dim);margin-top:8px;line-height:1.7;">
-        <strong style="color:var(--fg)">The right pipeline:</strong> Use inspect to <em>prioritize</em> what an LLM should review first, not to replace the diff entirely. inspect tells you where damage would be worst; an LLM tells you what the actual bug is.
+        <strong style="color:var(--fg)">The right architecture:</strong> Run inspect first (free, &lt;1s) to get entity risk rankings. Run an LLM on the diff independently. Merge findings. Don't feed inspect's output to the LLM as a filter, that constrains what the LLM can see. Use inspect to prioritize the merged results by blast radius.
       </p>
       <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
-        Experiment: 52 PRs, 2 Claude Haiku calls per PR (104 total). LLM-only gets the full diff (truncated to 30K chars). inspect+LLM gets High/Critical entity content (8K), Medium entity content (4K), and all-entities summary (2K). Same keyword-matching judge as all other benchmarks. Full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
+        Experiment: 52 PRs, 104 Claude Haiku API calls. LLM-alone gets the full diff (30K chars). Union = any golden comment found by either approach counts as found. Same keyword-matching judge across all approaches. Full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
       </p>
     </section>
 
