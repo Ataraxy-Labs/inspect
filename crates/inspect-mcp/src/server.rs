@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,8 +9,12 @@ use rmcp::{tool, tool_handler, tool_router, ServerHandler};
 use sem_core::git::types::DiffScope;
 use tokio::sync::Mutex;
 
-use inspect_core::analyze::{analyze, AnalyzeError};
+use inspect_core::analyze::{analyze, analyze_remote, AnalyzeError};
+use inspect_core::github::{CreateReview, GitHubClient, ReviewCommentInput};
+use inspect_core::noise::is_noise_file;
+use inspect_core::patch::{commentable_lines, parse_patch};
 use inspect_core::risk::suggest_verdict;
+use inspect_core::search;
 use inspect_core::types::{ReviewResult, RiskLevel};
 
 use crate::tools::*;
@@ -416,6 +420,260 @@ impl InspectServer {
             serde_json::to_string_pretty(&output).unwrap_or_default(),
         )]))
     }
+
+    #[tool(description = "Analyze a remote GitHub PR via API (no local clone needed). Returns entity-level triage with ConGra classification, risk scoring, and logical grouping. Same output format as inspect_triage but works on any public/accessible repo.")]
+    async fn inspect_pr(
+        &self,
+        Parameters(params): Parameters<RemoteTriageParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = GitHubClient::new().map_err(internal_err)?;
+
+        let pr = client
+            .get_pr(&params.repo, params.pr_number)
+            .await
+            .map_err(internal_err)?;
+
+        let visible_files: Vec<_> = pr
+            .files
+            .iter()
+            .filter(|f| !is_noise_file(&f.filename))
+            .cloned()
+            .collect();
+
+        let file_pairs = client
+            .get_file_pairs(&params.repo, &visible_files, &pr.base_ref, &pr.head_ref)
+            .await;
+
+        let result = analyze_remote(&file_pairs).map_err(internal_err)?;
+        let verdict = suggest_verdict(&result);
+
+        let entities: Vec<serde_json::Value> = result
+            .entity_reviews
+            .iter()
+            .filter(|r| {
+                if let Some(ref min) = params.min_risk {
+                    r.risk_level >= parse_risk_level(min)
+                } else {
+                    true
+                }
+            })
+            .map(|r| {
+                serde_json::json!({
+                    "name": r.entity_name,
+                    "type": r.entity_type,
+                    "file": r.file_path,
+                    "risk": format!("{}", r.risk_level),
+                    "score": format!("{:.2}", r.risk_score),
+                    "classification": format!("{}", r.classification),
+                    "change_type": format!("{:?}", r.change_type).to_lowercase(),
+                    "public_api": r.is_public_api,
+                    "cosmetic": r.structural_change == Some(false),
+                    "group_id": r.group_id,
+                })
+            })
+            .collect();
+
+        let groups: Vec<serde_json::Value> = result
+            .groups
+            .iter()
+            .map(|g| {
+                serde_json::json!({
+                    "id": g.id,
+                    "label": g.label,
+                    "entity_count": g.entity_ids.len(),
+                })
+            })
+            .collect();
+
+        let output = serde_json::json!({
+            "pr": {
+                "number": pr.number,
+                "title": pr.title,
+                "state": pr.state,
+                "additions": pr.additions,
+                "deletions": pr.deletions,
+            },
+            "verdict": format!("{}", verdict),
+            "stats": {
+                "total_entities": result.stats.total_entities,
+                "critical": result.stats.by_risk.critical,
+                "high": result.stats.by_risk.high,
+                "medium": result.stats.by_risk.medium,
+                "low": result.stats.by_risk.low,
+            },
+            "entities": entities,
+            "groups": groups,
+            "timing_ms": result.timing.total_ms,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&output).unwrap_or_default(),
+        )]))
+    }
+
+    #[tool(description = "Post review comments on a GitHub PR. Validates each comment against commentable diff lines before posting. Returns the review URL.")]
+    async fn inspect_post_review(
+        &self,
+        Parameters(params): Parameters<PostReviewParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = GitHubClient::new().map_err(internal_err)?;
+
+        let pr = client
+            .get_pr_with_patches(&params.repo, params.pr_number)
+            .await
+            .map_err(internal_err)?;
+
+        let file_commentable: HashMap<String, Vec<u64>> = pr
+            .files
+            .iter()
+            .map(|f| {
+                let hunks = f.patch.as_deref().map(parse_patch).unwrap_or_default();
+                let cl = commentable_lines(&hunks);
+                (f.filename.clone(), cl)
+            })
+            .collect();
+
+        let mut warnings = Vec::new();
+        let mut valid_comments = Vec::new();
+
+        for c in &params.comments {
+            if let Some(cl) = file_commentable.get(&c.path) {
+                if cl.contains(&c.line) {
+                    valid_comments.push(ReviewCommentInput {
+                        path: c.path.clone(),
+                        line: c.line,
+                        body: c.body.clone(),
+                        start_line: c.start_line,
+                    });
+                } else {
+                    warnings.push(format!(
+                        "{}:{} not commentable (not in diff)",
+                        c.path, c.line
+                    ));
+                }
+            } else {
+                warnings.push(format!("{} not a changed file", c.path));
+            }
+        }
+
+        if valid_comments.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::json!({
+                    "error": "no valid comments after validation",
+                    "warnings": warnings,
+                })
+                .to_string(),
+            )]));
+        }
+
+        let review = CreateReview {
+            commit_id: pr.head_sha,
+            event: "COMMENT".to_string(),
+            body: params.body.unwrap_or_else(|| "Review from inspect".into()),
+            comments: valid_comments,
+        };
+
+        let resp = client
+            .create_review(&params.repo, params.pr_number, &review)
+            .await
+            .map_err(internal_err)?;
+
+        let output = serde_json::json!({
+            "id": resp.id,
+            "url": resp.html_url,
+            "warnings": warnings,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&output).unwrap_or_default(),
+        )]))
+    }
+
+    #[tool(description = "Search PR files for a text pattern. Optionally also searches the broader codebase via GitHub Code Search. Returns grep-style matches with file, line, and context.")]
+    async fn inspect_search(
+        &self,
+        Parameters(params): Parameters<SearchParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let client = GitHubClient::new().map_err(internal_err)?;
+        let case_sensitive = params.case_sensitive.unwrap_or(false);
+        let repo_wide = params.repo_wide.unwrap_or(false);
+
+        let pr = client
+            .get_pr(&params.repo, params.pr_number)
+            .await
+            .map_err(internal_err)?;
+
+        let file_paths: Vec<String> = pr
+            .files
+            .iter()
+            .filter(|f| !is_noise_file(&f.filename))
+            .map(|f| f.filename.clone())
+            .collect();
+
+        let pr_files = client
+            .fetch_file_contents(&params.repo, &file_paths, &pr.head_ref)
+            .await;
+
+        let mut matches = search::grep_files(&pr_files, &params.pattern, case_sensitive, 2);
+
+        if repo_wide {
+            if let Ok(search_results) = client
+                .search_code(&params.repo, &params.pattern, None)
+                .await
+            {
+                let pr_file_set: HashSet<&str> =
+                    file_paths.iter().map(|s| s.as_str()).collect();
+
+                for item in &search_results.items {
+                    if pr_file_set.contains(item.path.as_str()) || is_noise_file(&item.path) {
+                        continue;
+                    }
+                    if let Some(text_matches) = &item.text_matches {
+                        for tm in text_matches {
+                            for (line_idx, line) in tm.fragment.lines().enumerate() {
+                                let haystack = if case_sensitive {
+                                    line.to_string()
+                                } else {
+                                    line.to_lowercase()
+                                };
+                                let pat = if case_sensitive {
+                                    params.pattern.clone()
+                                } else {
+                                    params.pattern.to_lowercase()
+                                };
+                                if haystack.contains(&pat) {
+                                    matches.push(search::SearchMatch {
+                                        file: item.path.clone(),
+                                        line: line_idx + 1,
+                                        column: haystack.find(&pat).unwrap_or(0) + 1,
+                                        text: line.to_string(),
+                                        context_before: vec![],
+                                        context_after: vec![],
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let output = serde_json::json!({
+            "total_matches": matches.len(),
+            "matches": matches.iter().take(100).map(|m| {
+                serde_json::json!({
+                    "file": m.file,
+                    "line": m.line,
+                    "column": m.column,
+                    "text": m.text,
+                })
+            }).collect::<Vec<_>>(),
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&output).unwrap_or_default(),
+        )]))
+    }
 }
 
 struct FileRisk {
@@ -432,9 +690,10 @@ impl ServerHandler for InspectServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "Entity-level code review triage server. Use inspect_triage as the primary entry \
-                 point to understand what changed and where to focus review. Drill down with \
-                 inspect_entity, inspect_group, or inspect_file for details."
+                "Entity-level code review triage server. For local repos: use inspect_triage as \
+                 the primary entry point. For remote GitHub PRs: use inspect_pr (no clone needed). \
+                 Drill down with inspect_entity, inspect_group, or inspect_file. Post reviews with \
+                 inspect_post_review. Search PR files with inspect_search."
                     .into(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),

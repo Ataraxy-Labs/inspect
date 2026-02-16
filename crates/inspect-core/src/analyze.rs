@@ -2,13 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use sem_core::git::bridge::GitBridge;
-use sem_core::git::types::DiffScope;
+use sem_core::git::types::{DiffScope, FileChange, FileStatus};
 use sem_core::model::change::ChangeType;
 use sem_core::parser::differ::compute_semantic_diff;
 use sem_core::parser::graph::EntityGraph;
 use sem_core::parser::plugins::create_default_registry;
 
 use crate::classify::classify_change;
+use crate::github::FilePair;
 use crate::risk::{compute_risk_score, is_public_api, score_to_level};
 use crate::types::*;
 use crate::untangle::untangle;
@@ -163,7 +164,125 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     })
 }
 
-fn compute_stats(reviews: &[EntityReview]) -> ReviewStats {
+/// Analyze file pairs fetched from a remote source (e.g. GitHub API).
+/// No local git repo or graph needed. Gets entity-level granularity,
+/// ConGra classification, public API detection, and risk scoring
+/// (blast_radius and dependent_count will be 0 since no graph is available).
+pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeError> {
+    use std::time::Instant;
+
+    let total_start = Instant::now();
+    let registry = create_default_registry();
+
+    let file_changes: Vec<FileChange> = file_pairs
+        .iter()
+        .map(|fp| {
+            let status = match fp.status.as_str() {
+                "added" => FileStatus::Added,
+                "removed" => FileStatus::Deleted,
+                "renamed" => FileStatus::Renamed,
+                _ => FileStatus::Modified,
+            };
+            FileChange {
+                file_path: fp.filename.clone(),
+                status,
+                old_file_path: None,
+                before_content: fp.before_content.clone(),
+                after_content: fp.after_content.clone(),
+            }
+        })
+        .collect();
+
+    if file_changes.is_empty() {
+        return Ok(empty_result());
+    }
+
+    let diff_start = Instant::now();
+    let diff = compute_semantic_diff(&file_changes, &registry, None, None);
+    let diff_ms = diff_start.elapsed().as_millis() as u64;
+
+    if diff.changes.is_empty() {
+        return Ok(empty_result());
+    }
+
+    let scoring_start = Instant::now();
+
+    let mut reviews: Vec<EntityReview> = Vec::new();
+
+    for change in &diff.changes {
+        let classification = classify_change(change);
+        let after_content_ref = change.after_content.as_deref();
+        let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content_ref);
+
+        let mut review = EntityReview {
+            entity_id: change.entity_id.clone(),
+            entity_name: change.entity_name.clone(),
+            entity_type: change.entity_type.clone(),
+            file_path: change.file_path.clone(),
+            change_type: change.change_type,
+            classification,
+            risk_score: 0.0,
+            risk_level: RiskLevel::Low,
+            blast_radius: 0,
+            dependent_count: 0,
+            dependency_count: 0,
+            is_public_api: pub_api,
+            structural_change: change.structural_change,
+            group_id: 0,
+            start_line: 0,
+            end_line: 0,
+            before_content: change.before_content.clone(),
+            after_content: change.after_content.clone(),
+            dependent_names: vec![],
+            dependency_names: vec![],
+        };
+
+        review.risk_score = compute_risk_score(&review, 0);
+        review.risk_level = score_to_level(review.risk_score);
+
+        reviews.push(review);
+    }
+
+    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+
+    let groups = untangle(&reviews, &[]);
+
+    let entity_to_group: HashMap<&str, usize> = groups
+        .iter()
+        .flat_map(|g| g.entity_ids.iter().map(move |id| (id.as_str(), g.id)))
+        .collect();
+
+    for review in &mut reviews {
+        if let Some(&gid) = entity_to_group.get(review.entity_id.as_str()) {
+            review.group_id = gid;
+        }
+    }
+
+    let scoring_ms = scoring_start.elapsed().as_millis() as u64;
+    let total_ms = total_start.elapsed().as_millis() as u64;
+
+    let stats = compute_stats(&reviews);
+
+    let timing = Timing {
+        diff_ms,
+        list_files_ms: 0,
+        file_count: file_pairs.len(),
+        graph_build_ms: 0,
+        graph_entity_count: 0,
+        scoring_ms,
+        total_ms,
+    };
+
+    Ok(ReviewResult {
+        entity_reviews: reviews,
+        groups,
+        stats,
+        timing,
+        changes: diff.changes,
+    })
+}
+
+pub(crate) fn compute_stats(reviews: &[EntityReview]) -> ReviewStats {
     let mut by_risk = RiskBreakdown {
         critical: 0,
         high: 0,

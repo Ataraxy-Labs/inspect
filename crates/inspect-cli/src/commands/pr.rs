@@ -6,7 +6,9 @@ use sem_core::git::types::DiffScope;
 
 use crate::formatters;
 use crate::OutputFormat;
-use inspect_core::analyze::analyze;
+use inspect_core::analyze::{analyze, analyze_remote};
+use inspect_core::github::GitHubClient;
+use inspect_core::noise::is_noise_file;
 use inspect_core::types::RiskLevel;
 
 #[derive(Args)]
@@ -26,15 +28,26 @@ pub struct PrArgs {
     #[arg(long)]
     pub context: bool,
 
-    /// Repository path
+    /// Remote repository (owner/repo). If set, fetches from GitHub API instead of local git.
+    #[arg(long)]
+    pub remote: Option<String>,
+
+    /// Repository path (for local mode)
     #[arg(short = 'C', long, default_value = ".")]
     pub repo: PathBuf,
 }
 
-pub fn run(args: PrArgs) {
+pub async fn run(args: PrArgs) {
+    if let Some(ref remote_repo) = args.remote {
+        run_remote(&args, remote_repo).await;
+    } else {
+        run_local(&args);
+    }
+}
+
+fn run_local(args: &PrArgs) {
     let repo = args.repo.canonicalize().unwrap_or(args.repo.clone());
 
-    // Get PR base and head refs via gh CLI
     let output = Command::new("gh")
         .args([
             "pr",
@@ -73,25 +86,80 @@ pub fn run(args: PrArgs) {
 
     match analyze(&repo, scope) {
         Ok(mut result) => {
-            if let Some(ref min) = args.min_risk {
-                let min_level = match min.to_lowercase().as_str() {
-                    "critical" => RiskLevel::Critical,
-                    "high" => RiskLevel::High,
-                    "medium" => RiskLevel::Medium,
-                    _ => RiskLevel::Low,
-                };
-                result.entity_reviews.retain(|r| r.risk_level >= min_level);
-            }
-
-            match args.format {
-                OutputFormat::Terminal => formatters::terminal::print(&result, args.context),
-                OutputFormat::Json => formatters::json::print(&result),
-                OutputFormat::Markdown => formatters::markdown::print(&result, args.context),
-            }
+            apply_filters_and_print(&mut result, args);
         }
         Err(e) => {
             eprintln!("error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+async fn run_remote(args: &PrArgs, remote_repo: &str) {
+    let client = match GitHubClient::new() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    eprintln!("Fetching PR #{} from {}...", args.number, remote_repo);
+
+    let pr = match client.get_pr(remote_repo, args.number).await {
+        Ok(pr) => pr,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let visible_files: Vec<_> = pr
+        .files
+        .iter()
+        .filter(|f| !is_noise_file(&f.filename))
+        .cloned()
+        .collect();
+
+    let noise_count = pr.files.len() - visible_files.len();
+    if noise_count > 0 {
+        eprintln!("({} noise files hidden)", noise_count);
+    }
+
+    eprintln!("Fetching {} file contents...", visible_files.len());
+
+    let file_pairs = client
+        .get_file_pairs(remote_repo, &visible_files, &pr.base_ref, &pr.head_ref)
+        .await;
+
+    match analyze_remote(&file_pairs) {
+        Ok(mut result) => {
+            apply_filters_and_print(&mut result, args);
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn apply_filters_and_print(
+    result: &mut inspect_core::types::ReviewResult,
+    args: &PrArgs,
+) {
+    if let Some(ref min) = args.min_risk {
+        let min_level = match min.to_lowercase().as_str() {
+            "critical" => RiskLevel::Critical,
+            "high" => RiskLevel::High,
+            "medium" => RiskLevel::Medium,
+            _ => RiskLevel::Low,
+        };
+        result.entity_reviews.retain(|r| r.risk_level >= min_level);
+    }
+
+    match args.format {
+        OutputFormat::Terminal => formatters::terminal::print(result, args.context),
+        OutputFormat::Json => formatters::json::print(result),
+        OutputFormat::Markdown => formatters::markdown::print(result, args.context),
     }
 }

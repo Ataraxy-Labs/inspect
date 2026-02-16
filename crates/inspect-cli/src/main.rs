@@ -20,6 +20,10 @@ enum Commands {
     File(commands::file::FileArgs),
     /// Benchmark entity-level review across a repo's history
     Bench(commands::bench::BenchArgs),
+    /// Post review comments on a GitHub PR
+    Review(commands::review::ReviewArgs),
+    /// Search PR files (and optionally the codebase) for a pattern
+    Grep(commands::grep::GrepArgs),
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -29,12 +33,15 @@ pub enum OutputFormat {
     Markdown,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Diff(args) => commands::diff::run(args),
-        Commands::Pr(args) => commands::pr::run(args),
+        Commands::Pr(args) => commands::pr::run(args).await,
         Commands::File(args) => commands::file::run(args),
         Commands::Bench(args) => commands::bench::run(args),
+        Commands::Review(args) => commands::review::run(args).await,
+        Commands::Grep(args) => commands::grep::run(args).await,
     }
 }

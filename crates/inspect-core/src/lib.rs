@@ -1,5 +1,9 @@
 pub mod analyze;
 pub mod classify;
+pub mod github;
+pub mod noise;
+pub mod patch;
 pub mod risk;
+pub mod search;
 pub mod types;
 pub mod untangle;
