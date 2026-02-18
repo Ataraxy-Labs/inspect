@@ -20,8 +20,10 @@ enum Commands {
     File(commands::file::FileArgs),
     /// Benchmark entity-level review across a repo's history
     Bench(commands::bench::BenchArgs),
-    /// Post review comments on a GitHub PR
+    /// Triage + LLM code review
     Review(commands::review::ReviewArgs),
+    /// Post review comments on a GitHub PR
+    Comment(commands::comment::CommentArgs),
     /// Search PR files (and optionally the codebase) for a pattern
     Grep(commands::grep::GrepArgs),
 }
@@ -42,6 +44,7 @@ async fn main() {
         Commands::File(args) => commands::file::run(args),
         Commands::Bench(args) => commands::bench::run(args),
         Commands::Review(args) => commands::review::run(args).await,
+        Commands::Comment(args) => commands::comment::run(args).await,
         Commands::Grep(args) => commands::grep::run(args).await,
     }
 }
