@@ -115,7 +115,7 @@ def fetch_commits(repo_dir, *shas):
     """Fetch specific commits and make them available for diff."""
     for sha in shas:
         subprocess.run(
-            ["git", "fetch", "--depth=50", "origin", sha],
+            ["git", "fetch", "--depth=100", "origin", sha],
             cwd=repo_dir, capture_output=True, timeout=120,
         )
     # Force checkout the head commit so inspect can ls-files
@@ -306,8 +306,7 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
             findings.extend(llm_findings)
 
     # File-gap review (optional): review diff chunks from files not covered by
-    # entity triage. Boosts recall ~3% but adds variance from LLM non-determinism.
-    # Uncomment to enable. Best results: 5 files, confidence >= 3.
+    # entity triage. Boosts recall ~3% but adds noise that hurts precision/F1.
     # covered_files = {e.get("file_path", "") for e in entities}
     # if diff_text:
     #     gap_findings = _review_uncovered_files(diff_text, covered_files, model)
@@ -321,6 +320,9 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     # Deduplicate: merge findings on same file within 20 lines, same entity,
     # or overlapping identifiers in description
     findings = _deduplicate_findings(findings)
+
+    # Optional: confidence filter. Testing shows conf>=3 drops too many real finds.
+    # findings = _filter_by_confidence(findings, min_confidence=3, max_findings=25)
 
     return findings
 
@@ -448,8 +450,8 @@ def _review_uncovered_files(diff_text, covered_files, model):
                 f["risk_level"] = "gap"
                 if not f.get("file"):
                     f["file"] = fp
-            # Only keep high-confidence gap findings (>=3)
-            findings.extend(f for f in llm_findings if f.get("confidence", 3) >= 3)
+            # Only keep high-confidence gap findings (>=4)
+            findings.extend(f for f in llm_findings if f.get("confidence", 3) >= 4)
 
     return findings
 
@@ -786,31 +788,42 @@ def _wait_for_indexing(repo_key, branch, max_wait=600):
 
 
 def run_coderabbit(repo_dir, base_sha, head_sha):
-    """Run CodeRabbit CLI, return findings list."""
-    # CodeRabbit needs a working tree, not a bare repo
-    worktree_dir = f"{repo_dir}__worktree"
-    if not os.path.exists(worktree_dir):
-        subprocess.run(
-            ["git", "clone", "--shared", repo_dir, worktree_dir],
-            capture_output=True, timeout=120,
-        )
-
-    # Checkout head commit
+    """Run CodeRabbit CLI, return findings list. Retries on rate limits."""
+    # Checkout head commit directly in the cached repo
     subprocess.run(
         ["git", "checkout", head_sha],
-        cwd=worktree_dir, capture_output=True, timeout=30,
+        cwd=repo_dir, capture_output=True, timeout=30,
     )
 
-    result = subprocess.run(
-        ["coderabbit", "--plain", "--type", "committed", "--base", base_sha],
-        cwd=worktree_dir, capture_output=True, text=True, timeout=300,
-    )
+    max_retries = 5
+    for attempt in range(max_retries):
+        result = subprocess.run(
+            ["coderabbit", "review", "--plain", "--type", "committed",
+             "--base-commit", base_sha],
+            cwd=repo_dir, capture_output=True, text=True, timeout=600,
+        )
 
-    if result.returncode != 0:
-        print(f"    CodeRabbit failed: {result.stderr[:200]}", file=sys.stderr)
-        return []
+        output = result.stdout + result.stderr
+        if "Rate limit exceeded" in output:
+            # Extract wait time from "please try after N minutes and M seconds"
+            wait_match = re.search(r'try after (\d+) minutes? and (\d+) seconds?', output)
+            if wait_match:
+                wait_secs = int(wait_match.group(1)) * 60 + int(wait_match.group(2)) + 10
+            else:
+                wait_secs = 120 * (attempt + 1)
+            print(f" rate limited, waiting {wait_secs}s...",
+                  file=sys.stderr, end="", flush=True)
+            time.sleep(wait_secs)
+            continue
 
-    return _parse_coderabbit_output(result.stdout)
+        if result.returncode != 0:
+            print(f"    CodeRabbit failed: {result.stderr[:200]}", file=sys.stderr)
+            return []
+
+        return _parse_coderabbit_output(result.stdout)
+
+    print(f"    CodeRabbit: max retries exceeded", file=sys.stderr)
+    return []
 
 
 def _parse_json_findings(text):
@@ -838,37 +851,49 @@ def _parse_json_findings(text):
 def _parse_coderabbit_output(text):
     """Parse CodeRabbit plaintext output into findings list.
 
-    CodeRabbit --plain output format:
-      path/to/file.py (line 42-50):
-      [category] description of issue...
+    CodeRabbit --plain output format (actual):
+      File: path/to/file.ts
+      Line: 1322 to 1334
+      Type: potential_issue
+
+      Comment:
+      Description of the issue...
     """
     findings = []
-    current_file = None
-    current_line = 0
+    # Split into blocks separated by the "File:" header
+    blocks = re.split(r'(?=^File:\s)', text, flags=re.MULTILINE)
 
-    for line in text.split("\n"):
-        # Match file header: "path/to/file.ext (line N-M):"
-        file_match = re.match(r'^(\S+)\s+\(line\s+(\d+)(?:-(\d+))?\):', line)
-        if file_match:
-            current_file = file_match.group(1)
-            current_line = int(file_match.group(2))
+    for block in blocks:
+        file_match = re.search(r'^File:\s*(.+)', block, re.MULTILINE)
+        if not file_match:
             continue
+        file_path = file_match.group(1).strip()
 
-        # Match category + description
-        desc_match = re.match(r'^\[(\w+)\]\s+(.+)', line.strip())
-        if desc_match and current_file:
-            findings.append({
-                "file": current_file,
-                "line": current_line,
-                "end_line": current_line,
-                "description": f"[{desc_match.group(1)}] {desc_match.group(2)}",
-            })
-            continue
+        line_match = re.search(r'^Line:\s*(\d+)(?:\s+to\s+(\d+))?', block, re.MULTILINE)
+        start_line = int(line_match.group(1)) if line_match else 0
+        end_line = int(line_match.group(2)) if line_match and line_match.group(2) else start_line
 
-        # Also try plain description lines after file header
-        if current_file and line.strip() and not line.startswith(" "):
-            # Reset file context on non-indented non-matching lines
-            current_file = None
+        type_match = re.search(r'^Type:\s*(.+)', block, re.MULTILINE)
+        issue_type = type_match.group(1).strip() if type_match else ""
+
+        # Extract comment text (everything after "Comment:" until next section)
+        comment_match = re.search(r'^Comment:\s*\n(.+?)(?=\n\n\S|\nPrompt for AI|\nReview completed|\Z)',
+                                  block, re.MULTILINE | re.DOTALL)
+        description = ""
+        if comment_match:
+            description = comment_match.group(1).strip()
+            # Take first paragraph as summary
+            first_para = description.split("\n\n")[0]
+            description = first_para[:500]
+        if issue_type:
+            description = f"[{issue_type}] {description}"
+
+        findings.append({
+            "file": file_path,
+            "line": start_line,
+            "end_line": end_line,
+            "description": description,
+        })
 
     return findings
 
