@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import concurrent.futures
 import csv
 import json
 import os
@@ -230,8 +231,9 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     # Get the actual diff for context
     diff_text = get_diff_text(repo_dir, base_sha, head_sha)
 
-    findings = []
-    for ei, e in enumerate(entities):
+    # Build prompts for all entities
+    tasks = []
+    for e in entities:
         file_path = e.get("file_path", "")
         entity_name = e.get("entity_name", "")
         before = (e.get("before_content") or "")[:3000]
@@ -245,7 +247,6 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
                 flat_deps.append(str(d))
         deps = ", ".join(flat_deps[:10])
 
-        # Extract relevant diff hunks for this file
         file_diff = _extract_file_diff(diff_text, file_path)[:3000]
 
         prompt = (
@@ -270,22 +271,35 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
             f'[{{"file": "{file_path}", "line": N, "description": "<entity_name>: <specific issue>"}}]\n'
             f"If genuinely no issues, respond with []. Only return JSON, no other text."
         )
+        tasks.append((e, prompt))
 
-        print(f" [{ei+1}/{len(entities)}]", file=sys.stderr, end="", flush=True)
+    # Fire all LLM calls in parallel (10 concurrent)
+    findings = []
+    done_count = 0
+
+    def _review_entity(args):
+        ent, prompt = args
         try:
-            llm_findings = _call_llm(prompt, model)
+            return ent, _call_llm(prompt, model)
         except Exception as ex:
-            print(f" err:{ex}", file=sys.stderr, end="")
-            continue
+            return ent, []
 
-        for f in llm_findings:
-            f["entity_name"] = entity_name
-            f["risk_level"] = e.get("risk_level", "")
-            if not f.get("file"):
-                f["file"] = file_path
-            if not f.get("line"):
-                f["line"] = e.get("start_line", 0)
-        findings.extend(llm_findings)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(_review_entity, t): t for t in tasks}
+        for future in concurrent.futures.as_completed(futures):
+            done_count += 1
+            print(f" [{done_count}/{len(tasks)}]", file=sys.stderr, end="", flush=True)
+            e, llm_findings = future.result()
+            entity_name = e.get("entity_name", "")
+            file_path = e.get("file_path", "")
+            for f in llm_findings:
+                f["entity_name"] = entity_name
+                f["risk_level"] = e.get("risk_level", "")
+                if not f.get("file"):
+                    f["file"] = file_path
+                if not f.get("line"):
+                    f["line"] = e.get("start_line", 0)
+            findings.extend(llm_findings)
 
     # Deduplicate: merge findings on same file within 5 lines
     findings = _deduplicate_findings(findings)
