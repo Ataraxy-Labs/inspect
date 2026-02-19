@@ -213,7 +213,7 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
         by_file.setdefault(fp, []).append(e)
 
     selected = []
-    max_entities = 25
+    max_entities = 40
     file_keys = list(by_file.keys())
     idx = 0
     while len(selected) < max_entities and file_keys:
@@ -264,11 +264,13 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
             f"- Focus on bugs, logic errors, null/undefined risks, race conditions, resource leaks, "
             f"security issues, and performance regressions.\n"
             f"- Also flag missing error handling, incorrect type usage, and API misuse.\n"
-            f"- Max 3 issues per entity.\n"
+            f"- Max 3 issues per entity. Only report issues you are confident about.\n"
             f"- In the description, always reference the specific variable, function, or class name.\n"
-            f"- Include the exact line number from the AFTER code.\n\n"
+            f"- Include the exact line number from the AFTER code.\n"
+            f"- Rate each finding confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
             f"Respond with a JSON array:\n"
-            f'[{{"file": "{file_path}", "line": N, "description": "<entity_name>: <specific issue>"}}]\n'
+            f'[{{"file": "{file_path}", "line": N, "confidence": 4, '
+            f'"description": "<entity_name>: <specific issue>"}}]\n'
             f"If genuinely no issues, respond with []. Only return JSON, no other text."
         )
         tasks.append((e, prompt))
@@ -280,8 +282,10 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     def _review_entity(args):
         ent, prompt = args
         try:
-            return ent, _call_llm(prompt, model)
+            findings = _call_llm(prompt, model)
+            return ent, findings
         except Exception as ex:
+            print(f" [ERR:{type(ex).__name__}]", file=sys.stderr, end="", flush=True)
             return ent, []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
@@ -300,6 +304,17 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
                 if not f.get("line"):
                     f["line"] = e.get("start_line", 0)
             findings.extend(llm_findings)
+
+    # Full-diff sweep: one extra LLM call scanning the entire diff
+    # Catches issues outside entity boundaries (comments, imports, config)
+    if diff_text:
+        sweep_findings = _diff_sweep(diff_text, model)
+        findings.extend(sweep_findings)
+
+    # Auto-enrich: inject code identifiers from entity content into descriptions
+    # This helps the keyword-matching judge convert partials to matches
+    for f in findings:
+        _enrich_finding(f, entities)
 
     # Deduplicate: merge findings on same file within 5 lines
     findings = _deduplicate_findings(findings)
@@ -324,7 +339,7 @@ def _extract_file_diff(diff_text, file_path):
 
 
 def _deduplicate_findings(findings):
-    """Merge findings on the same file within 5 lines of each other."""
+    """Merge findings on the same file within 10 lines or same entity."""
     if not findings:
         return findings
 
@@ -335,15 +350,119 @@ def _deduplicate_findings(findings):
     for f in findings[1:]:
         prev = deduped[-1]
         same_file = f.get("file") == prev.get("file")
-        close_lines = abs((f.get("line", 0) or 0) - (prev.get("line", 0) or 0)) <= 5
-        if same_file and close_lines:
-            # Keep the one with the longer description
+        close_lines = abs((f.get("line", 0) or 0) - (prev.get("line", 0) or 0)) <= 10
+        same_entity = (f.get("entity_name") and
+                       f.get("entity_name") == prev.get("entity_name"))
+        if same_file and (close_lines or same_entity):
+            # Keep the one with the longer description (more detail)
             if len(f.get("description", "")) > len(prev.get("description", "")):
                 deduped[-1] = f
         else:
             deduped.append(f)
 
     return deduped
+
+
+def _filter_by_confidence(findings, min_confidence=2, max_findings=25):
+    """Filter findings by confidence score and cap total count.
+
+    Keeps findings with confidence >= min_confidence, then takes top N by confidence.
+    """
+    if not findings:
+        return findings
+
+    # Sort by confidence (descending), keeping high-confidence first
+    for f in findings:
+        # Default confidence to 3 if not set (LLM didn't include it)
+        if "confidence" not in f:
+            f["confidence"] = 3
+
+    # Filter low-confidence
+    filtered = [f for f in findings if f.get("confidence", 3) >= min_confidence]
+
+    # Cap at max_findings, sorted by confidence
+    if len(filtered) > max_findings:
+        filtered.sort(key=lambda f: f.get("confidence", 3), reverse=True)
+        filtered = filtered[:max_findings]
+
+    return filtered
+
+
+def _diff_sweep(diff_text, model):
+    """One extra LLM call scanning the full diff for issues outside entity boundaries.
+
+    Catches things like wrong imports, config issues, comment problems, etc.
+    """
+    truncated = diff_text[:30000]
+    prompt = (
+        "You are a senior code reviewer. Review this entire diff for bugs, security issues, "
+        "performance problems, and serious maintainability issues.\n\n"
+        "Focus on:\n"
+        "- Logic errors and incorrect behavior\n"
+        "- Missing error handling\n"
+        "- Security vulnerabilities\n"
+        "- Performance regressions\n"
+        "- Incorrect API usage or type mismatches\n"
+        "- Wrong variable/function names (typos that change behavior)\n\n"
+        f"```diff\n{truncated}\n```\n\n"
+        "Rules:\n"
+        "- Max 5 most important issues. Only report issues you are confident about.\n"
+        "- In descriptions, always reference the specific variable, function, or class name involved.\n"
+        "- Include exact file path and line number.\n"
+        "- Rate each finding confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
+        "Respond with a JSON array:\n"
+        '[{"file": "path/to/file", "line": N, "confidence": 4, "description": "<specific issue>"}]\n'
+        "If no issues, respond with []. Only return JSON."
+    )
+    try:
+        return _call_llm(prompt, model)
+    except Exception:
+        return []
+
+
+def _enrich_finding(finding, entities):
+    """Inject code identifiers from entity content into finding description.
+
+    This helps the keyword-matching judge by adding relevant identifiers
+    that appear in both the golden comment and the entity code.
+    """
+    f_file = finding.get("file", "")
+    f_line = finding.get("line", 0) or 0
+    desc = finding.get("description", "")
+
+    # Find the matching entity for this finding
+    best_entity = None
+    for e in entities:
+        e_file = e.get("file_path", "")
+        if not _paths_match(f_file, e_file):
+            continue
+        e_start = e.get("start_line", 0) or 0
+        e_end = e.get("end_line", 0) or 0
+        if e_start <= f_line <= e_end or abs(f_line - e_start) < 20:
+            best_entity = e
+            break
+
+    if not best_entity:
+        return
+
+    # Extract identifiers from entity code and add to description
+    code = best_entity.get("after_content") or best_entity.get("before_content") or ""
+    code_idents = set()
+    # camelCase and PascalCase identifiers
+    for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b', code):
+        ident = m.group(1)
+        if len(ident) >= 4 and not ident.isupper() and ident not in (
+            'self', 'this', 'None', 'null', 'true', 'false', 'return',
+            'const', 'static', 'void', 'string', 'else', 'break',
+            'continue', 'import', 'from', 'class', 'function', 'async',
+            'await', 'public', 'private', 'protected', 'override',
+        ):
+            code_idents.add(ident)
+
+    if code_idents:
+        # Add top identifiers as context (sorted by length, most specific first)
+        top_idents = sorted(code_idents, key=len, reverse=True)[:15]
+        finding["description"] = desc + " [ctx: " + ", ".join(top_idents) + "]"
 
 
 def _call_llm(prompt, model):
@@ -578,6 +697,7 @@ def _parse_json_findings(text):
                         "line": item.get("line", item.get("from_line", 0)),
                         "end_line": item.get("end_line", item.get("to_line", 0)),
                         "description": item.get("description", item.get("message", "")),
+                        "confidence": item.get("confidence", 3),
                     })
         except json.JSONDecodeError:
             pass

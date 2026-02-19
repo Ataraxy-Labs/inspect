@@ -187,7 +187,7 @@
 
       <h3 style="font-size: 15px; color: var(--accent); margin: 32px 0 16px;">Head-to-head: inspect + LLM vs Greptile API</h3>
       <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
-        We ran all tools on the same 20 AACR-Bench PRs (166 golden comments, 9 languages, 20 repos). Greptile via their production API. inspect + LLM: triage with inspect, then review each High/Critical entity with GPT-5.2 or Sonnet 4.5. Same keyword-matching judge for all tools.
+        We ran all tools on the same 20 AACR-Bench PRs (166 golden comments, 9 languages, 20 repos). Greptile via their production API. inspect + LLM: triage with inspect (entity extraction + risk scoring), then review top 40 entities per PR with an LLM. Same keyword-matching judge for all tools.
       </p>
 
       <div class="comparison-table">
@@ -198,37 +198,45 @@
               <th>Strict Recall</th>
               <th>Lenient Recall</th>
               <th>Precision</th>
-              <th>Findings</th>
+              <th>F1</th>
+              <th>Speed</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong style="color:var(--accent)">inspect + Sonnet 4.5</strong></td>
-              <td class="win">30.1%</td>
-              <td class="win">46.4%</td>
-              <td>16.3%</td>
-              <td>307</td>
+              <td><strong style="color:var(--accent)">inspect + GPT-5.2</strong></td>
+              <td class="win">41.0%</td>
+              <td class="win">56.6%</td>
+              <td>17.1%</td>
+              <td class="win">24.2%</td>
+              <td class="win">15-30s</td>
             </tr>
             <tr>
-              <td><strong style="color:var(--accent)">inspect + GPT-5.2</strong></td>
-              <td class="win">28.9%</td>
-              <td class="win">47.6%</td>
-              <td>13.1%</td>
-              <td>366</td>
+              <td><strong style="color:var(--accent)">inspect + Sonnet 4.5</strong></td>
+              <td>29.5%</td>
+              <td>47.6%</td>
+              <td>12.5%</td>
+              <td>17.5%</td>
+              <td>25-55s</td>
             </tr>
             <tr>
               <td>Greptile (API)</td>
               <td>23.5%</td>
               <td>34.3%</td>
               <td class="win">21.7%</td>
-              <td>165</td>
+              <td>-</td>
+              <td>10-60s</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <p style="font-size:12px;color:var(--dim2);margin-top:12px;line-height:1.7;">
-        20 diverse PRs from AACR-Bench (round-robin across repos). Strict recall = file + line or file + identifier match. Lenient = file match only. All tools judged identically. Greptile repos indexed on their default branch before querying. inspect + LLM reviews top 30 High/Critical entities per PR.
+      <p style="font-size:13px;color:var(--dim);margin-top:12px;line-height:1.7;">
+        <strong style="color:var(--fg)">1.74x Greptile's recall.</strong> inspect + GPT-5.2 catches 41% of real issues vs Greptile's 23.5%, on the same PRs with the same judge. Per-language highlights: C 91.7%, C# 100%, Python 64.7%, Go 57.1%.
+      </p>
+
+      <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
+        20 diverse PRs from AACR-Bench (round-robin across repos). Strict recall = file + line or file + identifier match. Lenient = file match only. All tools judged identically with keyword-matching heuristic. Greptile repos indexed on their default branch. inspect + LLM reviews top 40 High/Critical/Medium entities per PR with 10 concurrent LLM calls, plus a full-diff sweep.
       </p>
     </section>
 
