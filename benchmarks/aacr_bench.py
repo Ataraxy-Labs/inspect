@@ -198,7 +198,7 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     except json.JSONDecodeError:
         return []
 
-    # Include Medium too for better recall coverage
+    # High/Critical/Medium: broad coverage, let per-PR cap control noise
     entities = [e for e in data.get("entity_reviews", [])
                 if e.get("risk_level") in ("High", "Critical", "Medium")]
     if not entities:
@@ -213,7 +213,7 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
         by_file.setdefault(fp, []).append(e)
 
     selected = []
-    max_entities = 40
+    max_entities = 25
     file_keys = list(by_file.keys())
     idx = 0
     while len(selected) < max_entities and file_keys:
@@ -264,7 +264,7 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
             f"- Focus on bugs, logic errors, null/undefined risks, race conditions, resource leaks, "
             f"security issues, and performance regressions.\n"
             f"- Also flag missing error handling, incorrect type usage, and API misuse.\n"
-            f"- Max 3 issues per entity. Only report issues you are confident about.\n"
+            f"- Max 2 issues per entity. Only report issues you are highly confident about.\n"
             f"- In the description, always reference the specific variable, function, or class name.\n"
             f"- Include the exact line number from the AFTER code.\n"
             f"- Rate each finding confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
@@ -305,18 +305,19 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
                     f["line"] = e.get("start_line", 0)
             findings.extend(llm_findings)
 
-    # Full-diff sweep: one extra LLM call scanning the entire diff
-    # Catches issues outside entity boundaries (comments, imports, config)
-    if diff_text:
-        sweep_findings = _diff_sweep(diff_text, model)
-        findings.extend(sweep_findings)
+    # Full-diff sweep disabled: adds ~3 findings/PR but hurts precision
+    # without enough recall gain to justify the noise
+    # if diff_text:
+    #     sweep_findings = _diff_sweep(diff_text, model)
+    #     findings.extend(sweep_findings)
 
     # Auto-enrich: inject code identifiers from entity content into descriptions
     # This helps the keyword-matching judge convert partials to matches
     for f in findings:
         _enrich_finding(f, entities)
 
-    # Deduplicate: merge findings on same file within 5 lines
+    # Deduplicate: merge findings on same file within 20 lines, same entity,
+    # or overlapping identifiers in description
     findings = _deduplicate_findings(findings)
 
     return findings
@@ -338,8 +339,25 @@ def _extract_file_diff(diff_text, file_path):
     return "\n".join(result)
 
 
+def _extract_desc_identifiers(desc):
+    """Extract code identifiers from a finding description for dedup matching."""
+    import re
+    # Match camelCase, snake_case, PascalCase identifiers (3+ chars)
+    tokens = set(re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b', desc or ""))
+    # Filter out common English words that aren't code identifiers
+    stopwords = {"the", "and", "for", "not", "but", "with", "this", "that", "from",
+                 "are", "was", "were", "been", "being", "have", "has", "had",
+                 "does", "did", "will", "would", "could", "should", "may", "might",
+                 "can", "shall", "must", "need", "null", "undefined", "error",
+                 "function", "method", "class", "variable", "parameter", "return",
+                 "value", "type", "file", "line", "code", "issue", "bug", "check",
+                 "missing", "unused", "added", "removed", "changed", "instead",
+                 "when", "where", "which", "what", "there", "here", "also", "only"}
+    return tokens - stopwords
+
+
 def _deduplicate_findings(findings):
-    """Merge findings on the same file within 10 lines or same entity."""
+    """Merge findings on the same file within 20 lines, same entity, or same identifiers."""
     if not findings:
         return findings
 
@@ -348,16 +366,31 @@ def _deduplicate_findings(findings):
 
     deduped = [findings[0]]
     for f in findings[1:]:
-        prev = deduped[-1]
-        same_file = f.get("file") == prev.get("file")
-        close_lines = abs((f.get("line", 0) or 0) - (prev.get("line", 0) or 0)) <= 10
-        same_entity = (f.get("entity_name") and
-                       f.get("entity_name") == prev.get("entity_name"))
-        if same_file and (close_lines or same_entity):
-            # Keep the one with the longer description (more detail)
-            if len(f.get("description", "")) > len(prev.get("description", "")):
-                deduped[-1] = f
-        else:
+        is_dup = False
+        # Check against ALL existing deduped findings in same file (not just prev)
+        for i, existing in enumerate(deduped):
+            same_file = f.get("file") == existing.get("file")
+            if not same_file:
+                continue
+
+            close_lines = abs((f.get("line", 0) or 0) - (existing.get("line", 0) or 0)) <= 20
+            same_entity = (f.get("entity_name") and
+                           f.get("entity_name") == existing.get("entity_name"))
+
+            # Identifier overlap: if descriptions share 2+ code identifiers, it's the same issue
+            f_ids = _extract_desc_identifiers(f.get("description", ""))
+            e_ids = _extract_desc_identifiers(existing.get("description", ""))
+            shared_ids = f_ids & e_ids
+            similar_desc = len(shared_ids) >= 2
+
+            if close_lines or same_entity or similar_desc:
+                # Keep the one with the longer description
+                if len(f.get("description", "")) > len(existing.get("description", "")):
+                    deduped[i] = f
+                is_dup = True
+                break
+
+        if not is_dup:
             deduped.append(f)
 
     return deduped
@@ -406,7 +439,7 @@ def _diff_sweep(diff_text, model):
         "- Wrong variable/function names (typos that change behavior)\n\n"
         f"```diff\n{truncated}\n```\n\n"
         "Rules:\n"
-        "- Max 5 most important issues. Only report issues you are confident about.\n"
+        "- Max 3 most important issues. Only report issues you are highly confident about.\n"
         "- In descriptions, always reference the specific variable, function, or class name involved.\n"
         "- Include exact file path and line number.\n"
         "- Rate each finding confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
