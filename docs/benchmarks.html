@@ -184,6 +184,52 @@
       <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
         <strong style="color:var(--fg)">Different paradigm, same benchmark.</strong> LLM tools generate specific review comments with high precision but low recall (the best catches 47% of issues). inspect identifies which entities need review. It catches 78% of issues by flagging 19% of the diff as Medium risk or above. The approaches are complementary: use inspect to prioritize, then use an LLM to review the flagged entities.
       </p>
+
+      <h3 style="font-size: 15px; color: var(--accent); margin: 32px 0 16px;">Head-to-head: inspect + LLM vs Greptile API</h3>
+      <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
+        We ran all tools on the same 20 AACR-Bench PRs (166 golden comments, 9 languages, 20 repos). Greptile via their production API. inspect + LLM: triage with inspect, then review each High/Critical entity with GPT-5.2 or Sonnet 4.5. Same keyword-matching judge for all tools.
+      </p>
+
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Strict Recall</th>
+              <th>Lenient Recall</th>
+              <th>Precision</th>
+              <th>Findings</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect + Sonnet 4.5</strong></td>
+              <td>15.1%</td>
+              <td>31.9%</td>
+              <td>2.0%</td>
+              <td>1,236</td>
+            </tr>
+            <tr>
+              <td><strong style="color:var(--accent)">inspect + GPT-5.2</strong></td>
+              <td>14.5%</td>
+              <td>31.9%</td>
+              <td>2.1%</td>
+              <td>1,128</td>
+            </tr>
+            <tr>
+              <td>Greptile (API)</td>
+              <td>23.5%</td>
+              <td>34.3%</td>
+              <td class="win">21.7%</td>
+              <td>165</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="font-size:12px;color:var(--dim2);margin-top:12px;line-height:1.7;">
+        20 diverse PRs from AACR-Bench (round-robin across repos). Strict recall = file + line or file + identifier match. Lenient = file match only. All tools judged identically. Greptile repos indexed on their default branch before querying. inspect + LLM reviews top 30 High/Critical entities per PR.
+      </p>
     </section>
 
     <!-- Greptile benchmark -->

@@ -30,6 +30,7 @@ DATASET_URL = "https://raw.githubusercontent.com/alibaba/aacr-bench/main/dataset
 DATASET_PATH = f"{CACHE_DIR}/positive_samples.json"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 GREPTILE_API_KEY = os.environ.get("GREPTILE_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
@@ -175,6 +176,134 @@ def run_inspect(repo_dir, base_sha, head_sha):
         })
 
     return findings
+
+
+def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
+    """Run inspect triage + LLM review on High/Critical entities.
+
+    inspect narrows 100 entities to ~10, then the LLM reviews each one.
+    """
+    diff_ref = f"{base_sha}..{head_sha}"
+    result = subprocess.run(
+        [INSPECT_BIN, "diff", diff_ref, "--repo", repo_dir, "--format", "json"],
+        capture_output=True, text=True, timeout=180,
+    )
+    if result.returncode != 0:
+        return []
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    entities = [e for e in data.get("entity_reviews", [])
+                if e.get("risk_level") in ("High", "Critical")]
+    if not entities:
+        return []
+
+    # Cap at top 30 by risk score to keep API costs/time reasonable
+    entities.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
+    entities = entities[:30]
+
+    findings = []
+    for ei, e in enumerate(entities):
+        before = (e.get("before_content") or "")[:4000]
+        after = (e.get("after_content") or "")[:4000]
+        raw_deps = e.get("dependency_names", []) or []
+        # Flatten in case of nested lists
+        flat_deps = []
+        for d in raw_deps[:10]:
+            if isinstance(d, list):
+                flat_deps.extend(str(x) for x in d)
+            else:
+                flat_deps.append(str(d))
+        deps = ", ".join(flat_deps[:10])
+
+        prompt = (
+            f"Review this code change for bugs, security issues, performance problems, "
+            f"and maintainability concerns.\n\n"
+            f"File: {e.get('file_path', '')}\n"
+            f"Entity: {e.get('entity_name', '')} ({e.get('entity_type', '')})\n"
+            f"Risk score: {e.get('risk_score', 0):.2f}, "
+            f"Dependents: {e.get('dependent_count', 0)}\n"
+            f"Dependencies: {deps}\n\n"
+            f"BEFORE:\n```\n{before}\n```\n\n"
+            f"AFTER:\n```\n{after}\n```\n\n"
+            f"For each issue, respond with a JSON array:\n"
+            f'[{{"file": "path/to/file", "line": N, "description": "issue"}}]\n'
+            f"If no issues, respond with []. Only return JSON."
+        )
+
+        print(f" [{ei+1}/{len(entities)}]", file=sys.stderr, end="", flush=True)
+        try:
+            llm_findings = _call_llm(prompt, model)
+        except Exception as ex:
+            print(f" err:{ex}", file=sys.stderr, end="")
+            continue
+
+        for f in llm_findings:
+            f["entity_name"] = e.get("entity_name", "")
+            f["risk_level"] = e.get("risk_level", "")
+            if not f.get("file"):
+                f["file"] = e.get("file_path", "")
+            if not f.get("line"):
+                f["line"] = e.get("start_line", 0)
+        findings.extend(llm_findings)
+
+    return findings
+
+
+def _call_llm(prompt, model):
+    """Call OpenAI or Anthropic API and return parsed findings."""
+    if model.startswith("gpt") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4"):
+        return _call_openai(prompt, model)
+    else:
+        return _call_anthropic(prompt, model)
+
+
+def _call_openai(prompt, model):
+    """Call OpenAI chat completions API."""
+    payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        body = json.loads(resp.read())
+    content = body["choices"][0]["message"]["content"]
+    return _parse_json_findings(content)
+
+
+def _call_anthropic(prompt, model):
+    """Call Anthropic messages API."""
+    if not model.startswith("claude"):
+        model = "claude-sonnet-4-20250514"
+    payload = json.dumps({
+        "model": model,
+        "max_tokens": 2048,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        body = json.loads(resp.read())
+    content = body["content"][0]["text"]
+    return _parse_json_findings(content)
 
 
 def _get_default_branch(owner, repo):
@@ -566,6 +695,9 @@ def run_benchmark(tools, limit, output_path, diverse=False):
             try:
                 if tool == "inspect":
                     findings = run_inspect(repo_dir, source_sha, target_sha)
+                elif tool.startswith("inspect+"):
+                    llm_model = tool.split("+", 1)[1]
+                    findings = run_inspect_llm(repo_dir, source_sha, target_sha, model=llm_model)
                 elif tool == "greptile":
                     if diff_text is None:
                         diff_text = get_diff_text(repo_dir, source_sha, target_sha)
@@ -757,10 +889,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     tool_list = [t.strip() for t in args.tools.split(",")]
-    valid_tools = {"inspect", "greptile", "coderabbit"}
+    base_tools = {"inspect", "greptile", "coderabbit"}
     for t in tool_list:
-        if t not in valid_tools:
-            print(f"Unknown tool: {t}. Valid: {', '.join(valid_tools)}", file=sys.stderr)
+        if t not in base_tools and not t.startswith("inspect+"):
+            print(f"Unknown tool: {t}. Valid: inspect, inspect+<model>, greptile, coderabbit", file=sys.stderr)
+            print(f"  Examples: inspect+gpt-4o, inspect+claude-sonnet-4-20250514", file=sys.stderr)
             sys.exit(1)
 
     run_benchmark(tool_list, args.limit, args.output, diverse=args.diverse)
