@@ -179,9 +179,10 @@ def run_inspect(repo_dir, base_sha, head_sha):
 
 
 def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
-    """Run inspect triage + LLM review on High/Critical entities.
+    """Run inspect triage + LLM review on High/Critical/Medium entities.
 
-    inspect narrows 100 entities to ~10, then the LLM reviews each one.
+    inspect narrows 100 entities to ~10-30, then the LLM reviews each one.
+    Post-processes to deduplicate and cap findings.
     """
     diff_ref = f"{base_sha}..{head_sha}"
     result = subprocess.run(
@@ -196,21 +197,46 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     except json.JSONDecodeError:
         return []
 
+    # Include Medium too for better recall coverage
     entities = [e for e in data.get("entity_reviews", [])
-                if e.get("risk_level") in ("High", "Critical")]
+                if e.get("risk_level") in ("High", "Critical", "Medium")]
     if not entities:
         return []
 
-    # Cap at top 30 by risk score to keep API costs/time reasonable
+    # Select top entities with file diversity (round-robin across files)
+    # This prevents a single huge module from hogging all review slots
     entities.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
-    entities = entities[:30]
+    by_file = {}
+    for e in entities:
+        fp = e.get("file_path", "")
+        by_file.setdefault(fp, []).append(e)
+
+    selected = []
+    max_entities = 25
+    file_keys = list(by_file.keys())
+    idx = 0
+    while len(selected) < max_entities and file_keys:
+        key = file_keys[idx % len(file_keys)]
+        if by_file[key]:
+            selected.append(by_file[key].pop(0))
+        else:
+            file_keys.remove(key)
+            if not file_keys:
+                break
+            continue
+        idx += 1
+    entities = selected
+
+    # Get the actual diff for context
+    diff_text = get_diff_text(repo_dir, base_sha, head_sha)
 
     findings = []
     for ei, e in enumerate(entities):
-        before = (e.get("before_content") or "")[:4000]
-        after = (e.get("after_content") or "")[:4000]
+        file_path = e.get("file_path", "")
+        entity_name = e.get("entity_name", "")
+        before = (e.get("before_content") or "")[:3000]
+        after = (e.get("after_content") or "")[:3000]
         raw_deps = e.get("dependency_names", []) or []
-        # Flatten in case of nested lists
         flat_deps = []
         for d in raw_deps[:10]:
             if isinstance(d, list):
@@ -219,19 +245,30 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
                 flat_deps.append(str(d))
         deps = ", ".join(flat_deps[:10])
 
+        # Extract relevant diff hunks for this file
+        file_diff = _extract_file_diff(diff_text, file_path)[:3000]
+
         prompt = (
-            f"Review this code change for bugs, security issues, performance problems, "
-            f"and maintainability concerns.\n\n"
-            f"File: {e.get('file_path', '')}\n"
-            f"Entity: {e.get('entity_name', '')} ({e.get('entity_type', '')})\n"
-            f"Risk score: {e.get('risk_score', 0):.2f}, "
-            f"Dependents: {e.get('dependent_count', 0)}\n"
+            f"You are reviewing a code change. Focus ONLY on real bugs, security vulnerabilities, "
+            f"performance regressions, and serious maintainability issues.\n\n"
+            f"File: {file_path}\n"
+            f"Entity: {entity_name} ({e.get('entity_type', '')})\n"
+            f"Risk: {e.get('risk_level', '')}, score={e.get('risk_score', 0):.2f}, "
+            f"dependents={e.get('dependent_count', 0)}\n"
             f"Dependencies: {deps}\n\n"
+            f"DIFF:\n```diff\n{file_diff}\n```\n\n"
             f"BEFORE:\n```\n{before}\n```\n\n"
             f"AFTER:\n```\n{after}\n```\n\n"
-            f"For each issue, respond with a JSON array:\n"
-            f'[{{"file": "path/to/file", "line": N, "description": "issue"}}]\n'
-            f"If no issues, respond with []. Only return JSON."
+            f"Rules:\n"
+            f"- Focus on bugs, logic errors, null/undefined risks, race conditions, resource leaks, "
+            f"security issues, and performance regressions.\n"
+            f"- Also flag missing error handling, incorrect type usage, and API misuse.\n"
+            f"- Max 3 issues per entity.\n"
+            f"- In the description, always reference the specific variable, function, or class name.\n"
+            f"- Include the exact line number from the AFTER code.\n\n"
+            f"Respond with a JSON array:\n"
+            f'[{{"file": "{file_path}", "line": N, "description": "<entity_name>: <specific issue>"}}]\n'
+            f"If genuinely no issues, respond with []. Only return JSON, no other text."
         )
 
         print(f" [{ei+1}/{len(entities)}]", file=sys.stderr, end="", flush=True)
@@ -242,15 +279,57 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
             continue
 
         for f in llm_findings:
-            f["entity_name"] = e.get("entity_name", "")
+            f["entity_name"] = entity_name
             f["risk_level"] = e.get("risk_level", "")
             if not f.get("file"):
-                f["file"] = e.get("file_path", "")
+                f["file"] = file_path
             if not f.get("line"):
                 f["line"] = e.get("start_line", 0)
         findings.extend(llm_findings)
 
+    # Deduplicate: merge findings on same file within 5 lines
+    findings = _deduplicate_findings(findings)
+
     return findings
+
+
+def _extract_file_diff(diff_text, file_path):
+    """Extract diff hunks for a specific file from the full diff."""
+    lines = diff_text.split("\n")
+    result = []
+    in_file = False
+    fname = file_path.split("/")[-1] if "/" in file_path else file_path
+
+    for line in lines:
+        if line.startswith("diff --git"):
+            in_file = file_path in line or fname in line
+        if in_file:
+            result.append(line)
+
+    return "\n".join(result)
+
+
+def _deduplicate_findings(findings):
+    """Merge findings on the same file within 5 lines of each other."""
+    if not findings:
+        return findings
+
+    # Sort by file, then line
+    findings.sort(key=lambda f: (f.get("file", ""), f.get("line", 0)))
+
+    deduped = [findings[0]]
+    for f in findings[1:]:
+        prev = deduped[-1]
+        same_file = f.get("file") == prev.get("file")
+        close_lines = abs((f.get("line", 0) or 0) - (prev.get("line", 0) or 0)) <= 5
+        if same_file and close_lines:
+            # Keep the one with the longer description
+            if len(f.get("description", "")) > len(prev.get("description", "")):
+                deduped[-1] = f
+        else:
+            deduped.append(f)
+
+    return deduped
 
 
 def _call_llm(prompt, model):
