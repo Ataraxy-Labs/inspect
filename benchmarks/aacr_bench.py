@@ -305,11 +305,13 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
                     f["line"] = e.get("start_line", 0)
             findings.extend(llm_findings)
 
-    # Full-diff sweep disabled: adds ~3 findings/PR but hurts precision
-    # without enough recall gain to justify the noise
+    # File-gap review (optional): review diff chunks from files not covered by
+    # entity triage. Boosts recall ~3% but adds variance from LLM non-determinism.
+    # Uncomment to enable. Best results: 5 files, confidence >= 3.
+    # covered_files = {e.get("file_path", "") for e in entities}
     # if diff_text:
-    #     sweep_findings = _diff_sweep(diff_text, model)
-    #     findings.extend(sweep_findings)
+    #     gap_findings = _review_uncovered_files(diff_text, covered_files, model)
+    #     findings.extend(gap_findings)
 
     # Auto-enrich: inject code identifiers from entity content into descriptions
     # This helps the keyword-matching judge convert partials to matches
@@ -354,6 +356,102 @@ def _extract_desc_identifiers(desc):
                  "missing", "unused", "added", "removed", "changed", "instead",
                  "when", "where", "which", "what", "there", "here", "also", "only"}
     return tokens - stopwords
+
+
+def _review_uncovered_files(diff_text, covered_files, model):
+    """Review diff chunks from files not covered by entity triage.
+
+    For large PRs, entity triage might miss entire files (e.g. files where
+    all entities are Low risk). This pass reviews each uncovered file's diff
+    to catch issues triage missed.
+    """
+    # Parse diff into per-file chunks
+    file_chunks = {}
+    current_file = None
+    current_lines = []
+
+    for line in diff_text.split("\n"):
+        if line.startswith("diff --git"):
+            if current_file and current_lines:
+                file_chunks[current_file] = "\n".join(current_lines)
+            # Extract file path: diff --git a/path b/path
+            parts = line.split(" b/")
+            current_file = parts[-1] if len(parts) > 1 else None
+            current_lines = [line]
+        elif current_file:
+            current_lines.append(line)
+
+    if current_file and current_lines:
+        file_chunks[current_file] = "\n".join(current_lines)
+
+    # Find uncovered files
+    uncovered = {}
+    for fp, chunk in file_chunks.items():
+        # Check if this file is already covered by entity review
+        is_covered = any(
+            fp == cf or fp.endswith(cf) or cf.endswith(fp)
+            for cf in covered_files
+        )
+        if not is_covered and len(chunk) > 50:  # Skip trivial diffs
+            uncovered[fp] = chunk
+
+    if not uncovered:
+        return []
+
+    # Cap at 5 uncovered files to limit noise
+    if len(uncovered) > 5:
+        # Prefer files with larger diffs (more likely to have issues)
+        sorted_files = sorted(uncovered.keys(), key=lambda f: len(uncovered[f]), reverse=True)
+        uncovered = {f: uncovered[f] for f in sorted_files[:5]}
+
+    # Review each uncovered file's diff
+    gap_tasks = []
+    for fp, chunk in uncovered.items():
+        truncated = chunk[:3000]
+        prompt = (
+            f"You are reviewing a code change. Focus ONLY on real bugs, security vulnerabilities, "
+            f"performance regressions, and serious maintainability issues.\n\n"
+            f"File: {fp}\n\n"
+            f"DIFF:\n```diff\n{truncated}\n```\n\n"
+            f"Rules:\n"
+            f"- Focus on bugs, logic errors, wrong return values, swapped conditions, "
+            f"security issues, and performance regressions.\n"
+            f"- Also flag incorrect type usage, missing validation, and API misuse.\n"
+            f"- Max 1 issue per file. Only report issues you are highly confident about.\n"
+            f"- In the description, always reference the specific variable, function, or class name.\n"
+            f"- Include the exact line number from the new code.\n"
+            f"- Rate each finding confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
+            f"Respond with a JSON array:\n"
+            f'[{{"file": "{fp}", "line": N, "confidence": 4, '
+            f'"description": "<specific issue>"}}]\n'
+            f"If genuinely no issues, respond with []. Only return JSON, no other text."
+        )
+        gap_tasks.append((fp, prompt))
+
+    findings = []
+    done = [0]
+
+    def _review_gap(args):
+        fp, prompt = args
+        try:
+            return fp, _call_llm(prompt, model)
+        except Exception:
+            return fp, []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(_review_gap, t): t for t in gap_tasks}
+        for future in concurrent.futures.as_completed(futures):
+            done[0] += 1
+            fp, llm_findings = future.result()
+            for f in llm_findings:
+                f["entity_name"] = ""
+                f["risk_level"] = "gap"
+                if not f.get("file"):
+                    f["file"] = fp
+            # Only keep high-confidence gap findings (>=3)
+            findings.extend(f for f in llm_findings if f.get("confidence", 3) >= 3)
+
+    return findings
 
 
 def _deduplicate_findings(findings):
