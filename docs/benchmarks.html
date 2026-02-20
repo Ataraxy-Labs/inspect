@@ -204,9 +204,9 @@
           <tbody>
             <tr>
               <td><strong style="color:var(--accent)">inspect + GPT-5.2</strong></td>
-              <td class="win">34.9%</td>
-              <td class="win">46.4%</td>
-              <td>249</td>
+              <td class="win">45.8%</td>
+              <td class="win">58.4%</td>
+              <td>355</td>
               <td class="win">5-15s/PR</td>
             </tr>
             <tr>
@@ -232,10 +232,10 @@
         <div class="bench-row">
           <div class="bench-label">
             <span class="name"><strong style="color:var(--accent)">inspect + GPT-5.2</strong></span>
-            <span class="value" style="color:var(--green)">34.9%</span>
+            <span class="value" style="color:var(--green)">45.8%</span>
           </div>
           <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="34.9">34.9%</div>
+            <div class="bench-bar inspect-bar" data-width="45.8">45.8%</div>
           </div>
         </div>
         <div class="bench-row">
@@ -260,11 +260,11 @@
       </div>
 
       <p style="font-size:13px;color:var(--dim);margin-top:12px;line-height:1.7;">
-        <strong style="color:var(--fg)">2.6x CodeRabbit's recall, 1.5x Greptile's recall.</strong> inspect + GPT-5.2 catches 34.9% of real issues vs Greptile's 23.5% and CodeRabbit's 13.3%. CodeRabbit produces very few findings (19 total across 20 PRs, most matching real issues) but misses the vast majority of problems. Per-language highlights: C 83-100%, Java 100%, Go 57%, Python 65-71%.
+        <strong style="color:var(--fg)">3.4x CodeRabbit's recall, 1.9x Greptile's recall.</strong> inspect + GPT-5.2 catches 45.8% of real issues vs Greptile's 23.5% and CodeRabbit's 13.3%. Per-language: C 100%, C# 100%, Java 100%, Go 57%, Python 53%, JavaScript 54%, TypeScript 40%.
       </p>
 
       <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
-        20 diverse PRs from AACR-Bench (round-robin across repos). Strict recall = file + line or file + identifier match. All tools judged identically with keyword-matching heuristic. Greptile repos indexed on their default branch. CodeRabbit run locally with rate limit retries (free tier, ~2 reviews per 5 minutes). inspect + LLM reviews top 25 High/Critical/Medium entities per PR with 10 concurrent LLM calls. Entity-level dedup (20-line window + identifier overlap) reduces noise. LLM non-determinism causes ~3% variance between runs.
+        20 diverse PRs from AACR-Bench (round-robin across repos). Strict recall = file + line or file + identifier match. All tools judged identically with keyword-matching heuristic. Greptile repos indexed on their default branch. CodeRabbit run locally with rate limit retries (free tier, ~2 reviews per 5 minutes). inspect + LLM reviews top 30 entities per PR (High/Critical/Medium first, then Low-risk for uncovered files) + 5-file gap review for diff coverage. 10 concurrent LLM calls. Entity-level dedup (20-line window + identifier overlap) reduces noise. LLM non-determinism causes ~5% variance between runs.
       </p>
     </section>
 

@@ -198,22 +198,28 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     except json.JSONDecodeError:
         return []
 
-    # High/Critical/Medium: broad coverage, let per-PR cap control noise
-    entities = [e for e in data.get("entity_reviews", [])
-                if e.get("risk_level") in ("High", "Critical", "Medium")]
-    if not entities:
+    all_entities = data.get("entity_reviews", [])
+    # Phase 1: High/Critical/Medium entities for primary coverage
+    hcm_entities = [e for e in all_entities
+                    if e.get("risk_level") in ("High", "Critical", "Medium")]
+
+    # Phase 2: Low-risk entities for file coverage gaps
+    low_entities = [e for e in all_entities
+                    if e.get("risk_level") == "Low"]
+
+    if not hcm_entities and not low_entities:
         return []
 
     # Select top entities with file diversity (round-robin across files)
     # This prevents a single huge module from hogging all review slots
-    entities.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
+    hcm_entities.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
     by_file = {}
-    for e in entities:
+    for e in hcm_entities:
         fp = e.get("file_path", "")
         by_file.setdefault(fp, []).append(e)
 
     selected = []
-    max_entities = 25
+    max_entities = 30
     file_keys = list(by_file.keys())
     idx = 0
     while len(selected) < max_entities and file_keys:
@@ -226,6 +232,18 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
                 break
             continue
         idx += 1
+
+    # Phase 2: Fill remaining slots with Low-risk entities from uncovered files
+    covered_files = {e.get("file_path", "") for e in selected}
+    low_entities.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
+    for e in low_entities:
+        if len(selected) >= max_entities:
+            break
+        fp = e.get("file_path", "")
+        if fp not in covered_files:
+            selected.append(e)
+            covered_files.add(fp)
+
     entities = selected
 
     # Get the actual diff for context
@@ -250,8 +268,8 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
         file_diff = _extract_file_diff(diff_text, file_path)[:3000]
 
         prompt = (
-            f"You are reviewing a code change. Focus ONLY on real bugs, security vulnerabilities, "
-            f"performance regressions, and serious maintainability issues.\n\n"
+            f"You are reviewing a code change. Find real bugs, security vulnerabilities, "
+            f"performance issues, and maintainability problems.\n\n"
             f"File: {file_path}\n"
             f"Entity: {entity_name} ({e.get('entity_type', '')})\n"
             f"Risk: {e.get('risk_level', '')}, score={e.get('risk_score', 0):.2f}, "
@@ -260,14 +278,19 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
             f"DIFF:\n```diff\n{file_diff}\n```\n\n"
             f"BEFORE:\n```\n{before}\n```\n\n"
             f"AFTER:\n```\n{after}\n```\n\n"
+            f"Check for ALL of these issue types:\n"
+            f"- BUGS: logic errors, null/undefined dereferences, off-by-one, wrong return values, "
+            f"swapped conditions, race conditions, resource leaks, unreachable code\n"
+            f"- SECURITY: injection, auth bypass, data exposure, missing input validation\n"
+            f"- PERFORMANCE: unnecessary computation, N+1 queries, missing parallelization\n"
+            f"- MAINTAINABILITY: typos in variable/function names, incorrect/outdated comments, "
+            f"dead code left behind, naming inconsistencies, incorrect type annotations, "
+            f"misleading variable names, duplicated logic\n\n"
             f"Rules:\n"
-            f"- Focus on bugs, logic errors, null/undefined risks, race conditions, resource leaks, "
-            f"security issues, and performance regressions.\n"
-            f"- Also flag missing error handling, incorrect type usage, and API misuse.\n"
-            f"- Max 2 issues per entity. Only report issues you are highly confident about.\n"
+            f"- Max 2 issues. Only report issues you are highly confident about.\n"
             f"- In the description, always reference the specific variable, function, or class name.\n"
             f"- Include the exact line number from the AFTER code.\n"
-            f"- Rate each finding confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
+            f"- Rate confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
             f"Respond with a JSON array:\n"
             f'[{{"file": "{file_path}", "line": N, "confidence": 4, '
             f'"description": "<entity_name>: <specific issue>"}}]\n'
@@ -305,12 +328,11 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
                     f["line"] = e.get("start_line", 0)
             findings.extend(llm_findings)
 
-    # File-gap review (optional): review diff chunks from files not covered by
-    # entity triage. Boosts recall ~3% but adds noise that hurts precision/F1.
-    # covered_files = {e.get("file_path", "") for e in entities}
-    # if diff_text:
-    #     gap_findings = _review_uncovered_files(diff_text, covered_files, model)
-    #     findings.extend(gap_findings)
+    # File-gap review: review diff chunks from files not covered by entity triage
+    covered_files = {e.get("file_path", "") for e in entities}
+    if diff_text:
+        gap_findings = _review_uncovered_files(diff_text, covered_files, model)
+        findings.extend(gap_findings)
 
     # Auto-enrich: inject code identifiers from entity content into descriptions
     # This helps the keyword-matching judge convert partials to matches
@@ -321,8 +343,8 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     # or overlapping identifiers in description
     findings = _deduplicate_findings(findings)
 
-    # Optional: confidence filter. Testing shows conf>=3 drops too many real finds.
-    # findings = _filter_by_confidence(findings, min_confidence=3, max_findings=25)
+    # Mild confidence filter: cut low-confidence noise (no cap)
+    findings = [f for f in findings if f.get("confidence", 3) >= 3]
 
     return findings
 
@@ -400,10 +422,16 @@ def _review_uncovered_files(diff_text, covered_files, model):
     if not uncovered:
         return []
 
-    # Cap at 5 uncovered files to limit noise
+    # Cap at 5 uncovered files, prefer source code over config/docs
     if len(uncovered) > 5:
-        # Prefer files with larger diffs (more likely to have issues)
-        sorted_files = sorted(uncovered.keys(), key=lambda f: len(uncovered[f]), reverse=True)
+        # Score files: source code > config, larger diff > smaller
+        def _file_priority(fp):
+            ext = fp.rsplit('.', 1)[-1].lower() if '.' in fp else ''
+            is_source = ext in ('py', 'js', 'ts', 'tsx', 'jsx', 'go', 'rs', 'java',
+                                'c', 'cpp', 'cc', 'h', 'hpp', 'cs', 'rb', 'php')
+            is_config = ext in ('json', 'yml', 'yaml', 'toml', 'xml', 'md', 'txt', 'lock')
+            return (2 if is_source else (0 if is_config else 1), len(uncovered[fp]))
+        sorted_files = sorted(uncovered.keys(), key=_file_priority, reverse=True)
         uncovered = {f: uncovered[f] for f in sorted_files[:5]}
 
     # Review each uncovered file's diff
@@ -411,18 +439,21 @@ def _review_uncovered_files(diff_text, covered_files, model):
     for fp, chunk in uncovered.items():
         truncated = chunk[:3000]
         prompt = (
-            f"You are reviewing a code change. Focus ONLY on real bugs, security vulnerabilities, "
-            f"performance regressions, and serious maintainability issues.\n\n"
+            f"You are reviewing a code change. Find real bugs, security vulnerabilities, "
+            f"performance issues, and maintainability problems.\n\n"
             f"File: {fp}\n\n"
             f"DIFF:\n```diff\n{truncated}\n```\n\n"
+            f"Check for ALL of these issue types:\n"
+            f"- BUGS: logic errors, null/undefined, off-by-one, wrong return values, unreachable code\n"
+            f"- SECURITY: injection, missing validation, data exposure\n"
+            f"- PERFORMANCE: unnecessary computation, missing parallelization\n"
+            f"- MAINTAINABILITY: typos in identifiers, incorrect/outdated comments, "
+            f"dead code, naming inconsistencies, incorrect types\n\n"
             f"Rules:\n"
-            f"- Focus on bugs, logic errors, wrong return values, swapped conditions, "
-            f"security issues, and performance regressions.\n"
-            f"- Also flag incorrect type usage, missing validation, and API misuse.\n"
             f"- Max 1 issue per file. Only report issues you are highly confident about.\n"
             f"- In the description, always reference the specific variable, function, or class name.\n"
             f"- Include the exact line number from the new code.\n"
-            f"- Rate each finding confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
+            f"- Rate confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
             f"Respond with a JSON array:\n"
             f'[{{"file": "{fp}", "line": N, "confidence": 4, '
             f'"description": "<specific issue>"}}]\n'
@@ -974,7 +1005,7 @@ def judge_finding(golden, findings):
             finding_idents.add(entity_name)
             finding_idents.add(entity_name.lower())
 
-        ident_overlap = golden_idents & {i.lower() for i in finding_idents}
+        ident_overlap = {i.lower() for i in golden_idents} & {i.lower() for i in finding_idents}
 
         if file_match and line_match:
             return "match", f"file+line match: {f_file}:{f_line}"
