@@ -22,13 +22,16 @@ All commands support `--format json` and `--format markdown` for machine-readabl
 
 ## MCP Server
 
-6 tools for agent integration:
+9 tools for agent integration:
 - `inspect_triage`: Primary entry point. Full analysis sorted by risk with verdict.
 - `inspect_entity`: Drill into one entity: before/after content, dependents, dependencies.
 - `inspect_group`: Get all entities in a logical change group.
 - `inspect_file`: Scope review to a single file.
 - `inspect_stats`: Lightweight summary: stats, verdict, timing. No entity details.
 - `inspect_risk_map`: File-level risk heatmap with per-file aggregate scores.
+- `inspect_pr`: Analyze a GitHub PR by number.
+- `inspect_diff`: Analyze a Git diff by ref.
+- `inspect_review`: Full LLM-assisted review of flagged entities.
 
 Build: `cargo build -p inspect-mcp`
 
@@ -45,7 +48,7 @@ Returned by inspect_triage and inspect_stats:
 Built in Rust. Three crates:
 - `inspect-core`: Analysis engine (classify, risk score, untangle, review verdict)
 - `inspect-cli`: CLI interface with terminal, JSON, and markdown formatters
-- `inspect-mcp`: MCP server exposing 6 tools for agent integration
+- `inspect-mcp`: MCP server exposing 9 tools for agent integration
 
 Depends on `sem-core` for entity extraction (tree-sitter parsers for 13 languages) and entity dependency graph.
 
@@ -61,25 +64,29 @@ Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 
 ## Benchmark Results
 
-### AACR-Bench (158 PRs, 50 repos, 10 languages)
+### AACR-Bench head-to-head (20 PRs, 166 golden comments, 9 languages)
+Same 20 PRs, same keyword-matching judge for all tools:
+- inspect + GPT-5.2: 45.8% recall, 21.4% precision, 29.2% F1 (355 findings)
+- Greptile API: 23.5% recall, 21.7% precision, 22.5% F1 (180 findings)
+- CodeRabbit CLI: 13.3% recall, 115.8% precision, 23.8% F1 (19 findings)
+- inspect has 2x Greptile's recall, 3.4x CodeRabbit's recall, highest F1
+
+### AACR-Bench triage-only (158 PRs, 50 repos, 10 languages)
 - High/Critical recall: 48.3% (comparable to GPT-5.2's 47.1%)
 - High/Critical + Medium recall: 78.2%
 - Entity coverage: 81.7%
 - Risk distribution: 9.5% High/Critical, 9.5% Medium, 81.1% Low
 - Per-language: C# 78%, TypeScript 70%, Java 62%, Python 53%, Go 47%, PHP 40%, Rust 36%
 
-### Greptile benchmark (50 PRs, 5 repos, 97 golden comments)
-- HC recall: 83.5% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
-- HCM recall: 100% (every golden comment within a flagged entity)
-- Keycloak (Java, 10 PRs): 100% HC, 100% HCM
-- Cal.com (TypeScript, 10 PRs): 91% HC, 100% HCM
-- Grafana (Go, 10 PRs): 81% HC, 100% HCM
-- Discourse (Ruby, 10 PRs): 79% HC, 100% HCM
-- Sentry (Python, 10 PRs): 67% HC, 100% HCM
-- Evaluated on Augment's expanded golden comments (not Greptile's original 1-per-PR)
+### Greptile benchmark (50 PRs, 5 repos, 141 golden comments)
+- inspect + LLM recall: 80.1% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
+- inspect alone recall: 75.2%
+- High/Critical recall: 96.1% (49/51)
+- Evaluated on Augment's expanded golden comments
 
 ### Common across benchmarks
-- No LLM, no API key, runs locally
+- inspect triage: no LLM, no API key, runs locally
+- inspect + LLM: triage first, then review top 30 entities per PR with LLM
 
 ## Performance
 
