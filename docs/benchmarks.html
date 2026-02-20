@@ -23,7 +23,7 @@
     <div style="padding: 48px 0 12px;">
       <h1 style="font-size: 28px; font-weight: 700; color: var(--accent); letter-spacing: -1px; margin-bottom: 12px;">Benchmarks</h1>
       <p style="font-size: 14px; color: var(--dim); line-height: 1.7; max-width: 600px;">
-        inspect evaluated on the same benchmarks used to measure frontier LLMs and commercial code review tools. No LLM, no API key, runs locally in under a second.
+        inspect + LLM evaluated on the same benchmarks used to measure frontier code review tools. Entity-level triage focuses the LLM on the code that matters.
       </p>
     </div>
 
@@ -34,161 +34,28 @@
         <a href="https://arxiv.org/abs/2601.19494" style="color:var(--cyan)">AACR-Bench</a> is the benchmark used to evaluate GPT-5.2, Claude 4.5 Sonnet, and other frontier LLMs for automated code review. 158 PRs, 1,169 ground truth issues from human reviewers, 50 open-source repos, 10 languages.
       </p>
 
-      <div class="stat-cards">
-        <div class="stat-card" style="border-color: var(--green);">
-          <div class="stat-value" style="color: var(--green);">48%</div>
-          <div class="stat-label">recall (High/Critical only)</div>
-          <div class="stat-detail">reviewing 9.5% of the diff</div>
-        </div>
-        <div class="stat-card" style="border-color: var(--cyan);">
-          <div class="stat-value" style="color: var(--cyan);">78%</div>
-          <div class="stat-label">recall (High/Critical + Medium)</div>
-          <div class="stat-detail">reviewing 19% of the diff</div>
-        </div>
-        <div class="stat-card" style="border-color: var(--purple);">
-          <div class="stat-value" style="color: var(--purple);">82%</div>
-          <div class="stat-label">total coverage</div>
-          <div class="stat-detail">issues within any changed entity</div>
-        </div>
-      </div>
-
-      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Recall: fraction of real issues identified</h3>
-      <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
-        Same benchmark, same ground truth. inspect uses graph-based risk scoring (no LLM). The AACR-Bench tools use frontier LLMs to generate review comments. Recall measures what fraction of real issues each tool identifies.
-      </p>
-
-      <div class="comparison-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Tool</th>
-              <th>Approach</th>
-              <th>Recall</th>
-              <th>Cost</th>
-              <th>Speed</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> (High/Critical + Medium)</td>
-              <td>graph-based triage</td>
-              <td class="win">78.2%</td>
-              <td class="win">free</td>
-              <td class="win">&lt;1s</td>
-            </tr>
-            <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> (High/Critical only)</td>
-              <td>graph-based triage</td>
-              <td class="win">48.3%</td>
-              <td class="win">free</td>
-              <td class="win">&lt;1s</td>
-            </tr>
-            <tr>
-              <td>GPT-5.2</td>
-              <td>LLM, no context</td>
-              <td>47.1%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>Qwen-480B-Coder</td>
-              <td>LLM, BM25 retrieval</td>
-              <td>45.9%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>Claude 4.5 Sonnet</td>
-              <td>LLM, embedding</td>
-              <td>42.9%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>GLM-4.7</td>
-              <td>LLM, no context</td>
-              <td>27.6%</td>
-              <td>$$</td>
-              <td>30-60s</td>
-            </tr>
-            <tr>
-              <td>Claude 4.5 Sonnet</td>
-              <td>LLM, agent</td>
-              <td class="lose">10.1%</td>
-              <td>$$$</td>
-              <td>2-5min</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="bench-group" style="margin-top: 32px;">
-        <h3>Recall comparison (visual)</h3>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> (High/Critical + Medium)</span>
-            <span class="value" style="color:var(--green)">78.2%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="78.2">78.2%</div>
-          </div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> (High/Critical only)</span>
-            <span class="value" style="color:var(--green)">48.3%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="48.3">48.3%</div>
-          </div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name">GPT-5.2</span>
-            <span class="value">47.1%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar other-bar" data-width="47.1">47.1%</div>
-          </div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name">Qwen-480B-Coder</span>
-            <span class="value">45.9%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar other-bar" data-width="45.9">45.9%</div>
-          </div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name">Claude 4.5 Sonnet</span>
-            <span class="value">42.9%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar other-bar" data-width="42.9">42.9%</div>
-          </div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name">GLM-4.7</span>
-            <span class="value">27.6%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar dim-bar" data-width="27.6">27.6%</div>
-          </div>
-        </div>
-        <div class="bench-note">graph-based triage, no LLM, &lt;1s, free</div>
-      </div>
-
-      <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
-        <strong style="color:var(--fg)">Different paradigm, same benchmark.</strong> LLM tools generate specific review comments with high precision but low recall (the best catches 47% of issues). inspect identifies which entities need review. It catches 78% of issues by flagging 19% of the diff as Medium risk or above. Use inspect to prioritize, then use an LLM to review the flagged entities.
-      </p>
-
-      <h3 style="font-size: 15px; color: var(--accent); margin: 32px 0 16px;">Head-to-head: inspect vs Greptile vs CodeRabbit</h3>
+      <h3 style="font-size: 15px; color: var(--accent); margin: 16px 0 16px;">Head-to-head: inspect vs Greptile vs CodeRabbit</h3>
       <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
         We ran all tools on the same 20 AACR-Bench PRs (166 golden comments, 9 languages, 20 repos). Greptile via their production API. CodeRabbit via their CLI. inspect + LLM: triage with inspect, then review top entities per PR with an LLM. Same keyword-matching judge for all tools.
       </p>
+
+      <div class="stat-cards">
+        <div class="stat-card" style="border-color: var(--green);">
+          <div class="stat-value" style="color: var(--green);">45.8%</div>
+          <div class="stat-label">recall (inspect + GPT-5.2)</div>
+          <div class="stat-detail">2x Greptile, 3.4x CodeRabbit</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--cyan);">
+          <div class="stat-value" style="color: var(--cyan);">29.2%</div>
+          <div class="stat-label">F1 score</div>
+          <div class="stat-detail">highest of all three tools</div>
+        </div>
+        <div class="stat-card" style="border-color: var(--purple);">
+          <div class="stat-value" style="color: var(--purple);">355</div>
+          <div class="stat-label">findings generated</div>
+          <div class="stat-detail">vs 180 Greptile, 19 CodeRabbit</div>
+        </div>
+      </div>
 
       <div class="comparison-table">
         <table>
@@ -323,11 +190,6 @@
           <div class="stat-label">High/Critical recall</div>
           <div class="stat-detail">51/51 bugs caught</div>
         </div>
-        <div class="stat-card" style="border-color: var(--purple);">
-          <div class="stat-value" style="color: var(--purple);">63.1%</div>
-          <div class="stat-label">recall (inspect alone)</div>
-          <div class="stat-detail">no LLM, no API key</div>
-        </div>
       </div>
 
       <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Per-repo results</h3>
@@ -338,7 +200,6 @@
               <th>Repo</th>
               <th>Language</th>
               <th>n</th>
-              <th>inspect (triage)</th>
               <th>inspect + Sonnet 4.6</th>
             </tr>
           </thead>
@@ -347,75 +208,31 @@
               <td>Cal.com</td>
               <td>TypeScript</td>
               <td>31</td>
-              <td>83.9%</td>
               <td class="win">100%</td>
             </tr>
             <tr>
               <td>Keycloak</td>
               <td>Java</td>
               <td>26</td>
-              <td>53.8%</td>
               <td class="win">100%</td>
             </tr>
             <tr>
               <td>Grafana</td>
               <td>Go</td>
               <td>22</td>
-              <td>63.6%</td>
               <td class="win">100%</td>
             </tr>
             <tr>
               <td>Discourse</td>
               <td>Ruby</td>
               <td>28</td>
-              <td>57.1%</td>
               <td class="win">96.4%</td>
             </tr>
             <tr>
               <td>Sentry</td>
               <td>Python</td>
               <td>34</td>
-              <td>55.9%</td>
               <td class="win">88.2%</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Head-to-head: inspect vs Greptile API</h3>
-      <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
-        We ran Greptile's API (<code style="background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--cyan)">POST /query</code> with <code style="background:var(--surface);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--cyan)">genius: true</code>) on the same 50 PRs. 47/52 responded successfully (5 returned HTTP 500). Both tools judged with the same keyword-matching methodology on 125 golden comments.
-        Full dataset: <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
-      </p>
-
-      <div class="comparison-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Tool</th>
-              <th>Approach</th>
-              <th>Recall</th>
-              <th>Precision</th>
-              <th>Cost</th>
-              <th>Speed</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong style="color:var(--accent)">inspect</strong></td>
-              <td>graph-based triage</td>
-              <td class="win">75.2%</td>
-              <td class="win">19.8%</td>
-              <td class="win">free</td>
-              <td class="win">&lt;1s</td>
-            </tr>
-            <tr>
-              <td>Greptile (API)</td>
-              <td>LLM agentic review</td>
-              <td>38.4%</td>
-              <td>16.4%</td>
-              <td>$0.45/PR</td>
-              <td>30-60s</td>
             </tr>
           </tbody>
         </table>
@@ -442,12 +259,6 @@
               <td class="win">96.5%</td>
               <td>19.8%</td>
               <td>33.1%</td>
-            </tr>
-            <tr>
-              <td><strong style="color:var(--accent)">inspect</strong> (triage only)</td>
-              <td>63.1%</td>
-              <td>19.8%</td>
-              <td>30.4%</td>
             </tr>
             <tr>
               <td>Augment Code Review</td>
@@ -512,15 +323,6 @@
         </div>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect</strong> (triage only)</span>
-            <span class="value" style="color:var(--green)">63.1%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="63.1">63.1%</div>
-          </div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label">
             <span class="name">Augment Code</span>
             <span class="value">55%</span>
           </div>
@@ -577,69 +379,25 @@
       </div>
 
       <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
-        Augment/Greptile/Cursor/CodeRabbit/Copilot recall/precision from <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment's blog post</a>. Greptile API recall from our own test (same keyword-matching judge). inspect precision = HC entities that correspond to a golden comment bug. Recall judged with keyword heuristic + LLM judge for borderline cases (binary caught/not-caught). Full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
+        Augment/Greptile/Cursor/CodeRabbit/Copilot recall/precision from <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment's blog post</a>. inspect precision = HC entities that correspond to a golden comment bug. Recall judged with keyword heuristic + LLM judge for borderline cases (binary caught/not-caught). Full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
       </p>
     </section>
 
-    <!-- LLM Experiment -->
+    <!-- How it works -->
     <section>
-      <h2>inspect + LLM: the right pipeline</h2>
+      <h2>How it works</h2>
       <p class="section-desc">
-        Fair criticism: comparing inspect's triage recall to LLM review recall is apples-to-oranges. So we ran a direct experiment: same benchmark, same judge. The result: <strong>architecture matters more than the model.</strong>
+        inspect runs entity-level triage locally (free, &lt;1s), then sends the top entities to an LLM for focused review. The LLM sees entity-scoped code with before/after context, not a raw diff.
       </p>
 
-      <div class="stat-cards">
-        <div class="stat-card" style="border-color: var(--green);">
-          <div class="stat-value" style="color: var(--green);">96.5%</div>
-          <div class="stat-label">inspect + Sonnet 4.6</div>
-          <div class="stat-detail">136/141 bugs caught</div>
-        </div>
-        <div class="stat-card" style="border-color: var(--cyan);">
-          <div class="stat-value" style="color: var(--cyan);">63.1%</div>
-          <div class="stat-label">inspect alone recall</div>
-          <div class="stat-detail">89/141 bugs caught</div>
-        </div>
-        <div class="stat-card" style="border-color: var(--purple);">
-          <div class="stat-value" style="color: var(--purple);">100%</div>
-          <div class="stat-label">HC recall (Sonnet 4.6)</div>
-          <div class="stat-detail">51/51 critical+high caught</div>
-        </div>
-      </div>
-
-      <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Approaches compared</h3>
-      <div class="comparison-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Approach</th>
-              <th>Recall</th>
-              <th>HC Recall</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong style="color:var(--accent)">inspect + Sonnet 4.6</strong></td>
-              <td class="win">96.5%</td>
-              <td class="win">100%</td>
-            </tr>
-            <tr>
-              <td>inspect alone (graph triage)</td>
-              <td>63.1%</td>
-              <td>70.6%</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Per-severity breakdown</h3>
+      <h3 style="font-size: 15px; color: var(--accent); margin: 16px 0 16px;">Per-severity breakdown (Greptile benchmark)</h3>
       <div class="comparison-table">
         <table>
           <thead>
             <tr>
               <th>Severity</th>
               <th>n</th>
-              <th>inspect + Sonnet 4.6</th>
-              <th>inspect alone</th>
+              <th>Recall</th>
             </tr>
           </thead>
           <tbody>
@@ -647,241 +405,31 @@
               <td>Critical</td>
               <td>9</td>
               <td class="win">100%</td>
-              <td>66.7%</td>
             </tr>
             <tr>
               <td>High</td>
               <td>42</td>
               <td class="win">100%</td>
-              <td>71.4%</td>
             </tr>
             <tr>
               <td>Medium</td>
               <td>49</td>
               <td class="win">93.9%</td>
-              <td>63.3%</td>
             </tr>
             <tr>
               <td>Low</td>
               <td>41</td>
               <td class="win">95.1%</td>
-              <td>53.7%</td>
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <div class="bench-group" style="margin-top: 32px;">
-        <h3>Recall comparison</h3>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name"><strong style="color:var(--accent)">inspect + Sonnet 4.6</strong></span>
-            <span class="value" style="color:var(--green)">96.5%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar inspect-bar" data-width="96.5">96.5%</div>
-          </div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label">
-            <span class="name">inspect alone</span>
-            <span class="value" style="color:var(--cyan)">63.1%</span>
-          </div>
-          <div class="bench-bar-track">
-            <div class="bench-bar other-bar" data-width="63.1">63.1%</div>
-          </div>
-        </div>
-        <div class="bench-note">141 golden comments, 50 PRs, Claude Sonnet 4.6</div>
       </div>
 
       <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
-        <strong style="color:var(--fg)">Why triage + LLM works.</strong> inspect narrows 100+ entities to ~30 by risk score. The LLM reviews each flagged entity with full before/after code and diff context. Focused review on the right entities: 96.5% recall. 100% on critical+high bugs. Only 2 golden comments missed out of 141.
-      </p>
-      <p style="font-size:13px;color:var(--dim);margin-top:8px;line-height:1.7;">
-        <strong style="color:var(--fg)">The right architecture:</strong> Run inspect first (free, &lt;1s) to get entity risk rankings. Send top 30 entities to an LLM with before/after code + file diff. Gap-review uncovered files. Dedup and filter by confidence. The triage step means the LLM sees focused code, not an entire diff.
+        <strong style="color:var(--fg)">The pipeline.</strong> Run inspect first (free, &lt;1s) to get entity risk rankings. Send top 30 entities to an LLM with before/after code + file diff. Gap-review uncovered files. Dedup and filter by confidence. The triage step means the LLM sees focused code, not an entire diff.
       </p>
       <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
         50 PRs across 5 repos. Claude Sonnet 4.6 with 10 concurrent API calls. ~30 entities per PR + 5-file gap review. Recall judged with keyword heuristic + manual overrides (binary caught/not-caught, matching <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's methodology</a>). Full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
-      </p>
-    </section>
-
-    <!-- Per-language results -->
-    <section>
-      <h2>Per-language results</h2>
-      <p class="section-desc">High/Critical recall = fraction of ground truth issues within High or Critical risk entities. 158 PRs across 50 open-source repos.</p>
-
-      <div class="comparison-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Language</th>
-              <th>PRs</th>
-              <th>High/Critical Recall</th>
-              <th>Coverage</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>C#</td>
-              <td>10</td>
-              <td class="win">78%</td>
-              <td class="win">82%</td>
-            </tr>
-            <tr>
-              <td>TypeScript</td>
-              <td>29</td>
-              <td class="win">70%</td>
-              <td>79%</td>
-            </tr>
-            <tr>
-              <td>Java</td>
-              <td>16</td>
-              <td class="win">62%</td>
-              <td class="win">89%</td>
-            </tr>
-            <tr>
-              <td>Python</td>
-              <td>21</td>
-              <td>53%</td>
-              <td class="win">95%</td>
-            </tr>
-            <tr>
-              <td>Go</td>
-              <td>22</td>
-              <td>47%</td>
-              <td class="win">88%</td>
-            </tr>
-            <tr>
-              <td>PHP</td>
-              <td>10</td>
-              <td>40%</td>
-              <td>80%</td>
-            </tr>
-            <tr>
-              <td>Rust</td>
-              <td>10</td>
-              <td>36%</td>
-              <td>73%</td>
-            </tr>
-            <tr>
-              <td>JavaScript</td>
-              <td>11</td>
-              <td>20%</td>
-              <td class="win">83%</td>
-            </tr>
-            <tr>
-              <td>C++</td>
-              <td>10</td>
-              <td class="lose">19%</td>
-              <td class="lose">46%</td>
-            </tr>
-            <tr>
-              <td>C</td>
-              <td>19</td>
-              <td class="lose">16%</td>
-              <td>73%</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="bench-group" style="margin-top: 32px;">
-        <h3>High/Critical recall by language (visual)</h3>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">C#</span><span class="value" style="color:var(--green)">78%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="78">78%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">TypeScript</span><span class="value" style="color:var(--green)">70%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="70">70%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">Java</span><span class="value" style="color:var(--green)">62%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar inspect-bar" data-width="62">62%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">Python</span><span class="value">53%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar other-bar" data-width="53">53%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">Go</span><span class="value">47%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar other-bar" data-width="47">47%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">PHP</span><span class="value">40%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar other-bar" data-width="40">40%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">Rust</span><span class="value">36%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar dim-bar" data-width="36">36%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">JavaScript</span><span class="value">20%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar dim-bar" data-width="20">20%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">C++</span><span class="value" style="color:var(--dim)">19%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar dim-bar" data-width="19">19%</div></div>
-        </div>
-        <div class="bench-row">
-          <div class="bench-label"><span class="name">C</span><span class="value" style="color:var(--dim)">16%</span></div>
-          <div class="bench-bar-track"><div class="bench-bar dim-bar" data-width="16">16%</div></div>
-        </div>
-      </div>
-
-      <p style="font-size:13px;color:var(--dim);margin-top:16px;line-height:1.7;">
-        158 PRs evaluated. 38 skipped due to timeouts on very large codebases (FreeCAD, ClickHouse, elasticsearch) or parse limitations.
-        Coverage = fraction of issues within any changed entity. Higher coverage with lower High/Critical recall means the issue is in a Medium or Low risk entity.
-      </p>
-    </section>
-
-    <!-- Risk distribution -->
-    <section>
-      <h2>Risk distribution</h2>
-      <p class="section-desc">How inspect distributes entities across risk levels. The goal: focus review on the 19% that matters.</p>
-
-      <div class="stat-cards">
-        <div class="stat-card" style="border-color: var(--red);">
-          <div class="stat-value" style="color: var(--red);">9.5%</div>
-          <div class="stat-label">High / Critical</div>
-          <div class="stat-detail">entities with graph impact</div>
-        </div>
-        <div class="stat-card" style="border-color: var(--yellow);">
-          <div class="stat-value" style="color: var(--yellow);">9.5%</div>
-          <div class="stat-label">Medium</div>
-          <div class="stat-detail">functional changes, low graph impact</div>
-        </div>
-        <div class="stat-card" style="border-color: var(--dim);">
-          <div class="stat-value" style="color: var(--dim);">81%</div>
-          <div class="stat-label">Low</div>
-          <div class="stat-detail">cosmetic, additions, no dependents</div>
-        </div>
-      </div>
-
-      <div style="margin-top: 32px;">
-        <h3 style="font-size: 15px; color: var(--accent); margin-bottom: 16px;">Where bugs live (visual)</h3>
-        <div class="risk-segments" id="risk-segments">
-          <div class="risk-segment" style="flex-grow: 9.5; background: var(--red);">
-            <span class="seg-tooltip">High/Critical: 9.5% of entities, 48% of bugs</span>
-            H/C
-          </div>
-          <div class="risk-segment" style="flex-grow: 9.5; background: var(--yellow);">
-            <span class="seg-tooltip">Medium: 9.5% of entities, 30% of bugs</span>
-            M
-          </div>
-          <div class="risk-segment" style="flex-grow: 81; background: #333;">
-            <span class="seg-tooltip">Low: 81% of entities, 4% of bugs</span>
-            Low (81%)
-          </div>
-        </div>
-        <div class="risk-legend">
-          <div class="risk-legend-item"><div class="risk-swatch" style="background:var(--red)"></div> High/Critical (9.5%): 48% of real bugs</div>
-          <div class="risk-legend-item"><div class="risk-swatch" style="background:var(--yellow)"></div> Medium (9.5%): 30% of real bugs</div>
-          <div class="risk-legend-item"><div class="risk-swatch" style="background:#333"></div> Low (81%): 4% of real bugs</div>
-        </div>
-      </div>
-
-      <p style="font-size:13px;color:var(--dim);margin-top:16px;line-height:1.7;">
-        81% of changed entities are Low risk (cosmetic changes, new additions with no dependents, text-only edits). Filtering these out lets reviewers focus on the 19% where bugs actually live.
       </p>
     </section>
 

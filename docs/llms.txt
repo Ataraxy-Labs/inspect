@@ -71,23 +71,14 @@ Same 20 PRs, same keyword-matching judge for all tools:
 - CodeRabbit CLI: 13.3% recall, 115.8% precision, 23.8% F1 (19 findings)
 - inspect has 2x Greptile's recall, 3.4x CodeRabbit's recall, highest F1
 
-### AACR-Bench triage-only (158 PRs, 50 repos, 10 languages)
-- High/Critical recall: 48.3% (comparable to GPT-5.2's 47.1%)
-- High/Critical + Medium recall: 78.2%
-- Entity coverage: 81.7%
-- Risk distribution: 9.5% High/Critical, 9.5% Medium, 81.1% Low
-- Per-language: C# 78%, TypeScript 70%, Java 62%, Python 53%, Go 47%, PHP 40%, Rust 36%
-
 ### Greptile benchmark (50 PRs, 5 repos, 141 golden comments)
 - inspect + Sonnet 4.6 recall: 96.5% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
-- inspect alone recall: 63.1%
 - High/Critical recall: 100% (51/51, zero critical bugs missed)
 - Per-repo: Cal.com 100%, Keycloak 100%, Grafana 100%, Discourse 96.4%, Sentry 88.2%
 - Evaluated on Augment's expanded golden comments
 
-### Common across benchmarks
-- inspect triage: no LLM, no API key, runs locally
-- inspect + LLM: triage first, then review top 30 entities per PR with LLM
+### Pipeline
+- inspect triage (free, <1s) narrows entities by risk, then LLM reviews top 30 per PR
 
 ## Performance
 
