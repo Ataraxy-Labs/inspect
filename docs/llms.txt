@@ -79,9 +79,10 @@ Same 20 PRs, same keyword-matching judge for all tools:
 - Per-language: C# 78%, TypeScript 70%, Java 62%, Python 53%, Go 47%, PHP 40%, Rust 36%
 
 ### Greptile benchmark (50 PRs, 5 repos, 141 golden comments)
-- inspect + LLM recall: 80.1% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
-- inspect alone recall: 75.2%
-- High/Critical recall: 96.1% (49/51)
+- inspect + Sonnet 4.6 recall: 96.5% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
+- inspect alone recall: 63.1%
+- High/Critical recall: 100% (51/51, zero critical bugs missed)
+- Per-repo: Cal.com 100%, Keycloak 100%, Grafana 100%, Discourse 96.4%, Sentry 88.2%
 - Evaluated on Augment's expanded golden comments
 
 ### Common across benchmarks
