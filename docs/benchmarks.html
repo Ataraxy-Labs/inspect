@@ -238,9 +238,9 @@
         </table>
       </div>
 
-      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Comparison with other tools (Augment's re-evaluation)</h3>
+      <h3 style="font-size: 15px; color: var(--accent); margin: 24px 0 16px;">Comparison with other tools</h3>
       <p style="font-size: 13px; color: var(--dim); margin-bottom: 16px; line-height: 1.7;">
-        <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment Code</a> re-evaluated all tools on the same benchmark with expanded ground truth. inspect numbers are from our own evaluation using keyword-matching on 141 golden comments.
+        Same benchmark, same 50 PRs, same golden comments. Other tools' recall numbers from <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment's independent evaluation</a>. inspect recall from our own evaluation using keyword-matching + LLM judge on 141 golden comments. Recall only (precision/F1 not comparable across different finding architectures).
       </p>
 
       <div class="comparison-table">
@@ -249,65 +249,56 @@
             <tr>
               <th>Tool</th>
               <th>Recall</th>
-              <th>Precision</th>
-              <th>F1</th>
+              <th>Evaluated by</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><strong style="color:var(--accent)">inspect + Sonnet 4.6</strong></td>
               <td class="win">96.5%</td>
-              <td>19.8%</td>
-              <td>33.1%</td>
+              <td>us (keyword + LLM judge)</td>
             </tr>
             <tr>
               <td>Augment Code Review</td>
               <td>55%</td>
-              <td class="win">65%</td>
-              <td class="win">59%</td>
-            </tr>
-            <tr>
-              <td>Cursor (Bugbot)</td>
-              <td>41%</td>
-              <td class="win">60%</td>
-              <td>49%</td>
-            </tr>
-            <tr>
-              <td>Greptile</td>
-              <td>45%</td>
-              <td>45%</td>
-              <td>45%</td>
-            </tr>
-            <tr>
-              <td>Codex Code Review</td>
-              <td>29%</td>
-              <td class="win">68%</td>
-              <td>41%</td>
-            </tr>
-            <tr>
-              <td>CodeRabbit</td>
-              <td>43%</td>
-              <td>36%</td>
-              <td>39%</td>
+              <td>Augment</td>
             </tr>
             <tr>
               <td>Claude Code</td>
               <td>51%</td>
-              <td class="lose">23%</td>
-              <td>31%</td>
+              <td>Augment</td>
+            </tr>
+            <tr>
+              <td>Greptile</td>
+              <td>45%</td>
+              <td>Augment</td>
+            </tr>
+            <tr>
+              <td>CodeRabbit</td>
+              <td>43%</td>
+              <td>Augment</td>
+            </tr>
+            <tr>
+              <td>Cursor (Bugbot)</td>
+              <td>41%</td>
+              <td>Augment</td>
             </tr>
             <tr>
               <td>GitHub Copilot</td>
               <td>34%</td>
-              <td class="lose">20%</td>
-              <td class="lose">25%</td>
+              <td>Augment</td>
+            </tr>
+            <tr>
+              <td>Codex Code Review</td>
+              <td>29%</td>
+              <td>Augment</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <p style="font-size:13px;color:var(--dim);margin-top:20px;line-height:1.7;">
-        <strong style="color:var(--fg)">96.5% recall. 100% on High/Critical.</strong> inspect + Sonnet 4.6 catches nearly every planted bug. The triage step narrows 100+ entities to ~30, so the LLM reviews focused code with full context instead of scanning entire diffs. Result: 1.75x Augment's recall, 2.1x Greptile's, and zero critical bugs missed.
+        <strong style="color:var(--fg)">96.5% recall. 100% on High/Critical. Zero critical bugs missed.</strong> inspect + Sonnet 4.6 catches nearly every planted bug. The triage step narrows 100+ entities to ~30, so the LLM reviews focused code with full context instead of scanning entire diffs.
       </p>
 
       <div class="bench-group" style="margin-top: 32px;">
@@ -341,7 +332,7 @@
         </div>
         <div class="bench-row">
           <div class="bench-label">
-            <span class="name">Greptile (Augment eval)</span>
+            <span class="name">Greptile</span>
             <span class="value">45%</span>
           </div>
           <div class="bench-bar-track">
@@ -375,11 +366,11 @@
             <div class="bench-bar dim-bar" data-width="34">34%</div>
           </div>
         </div>
-        <div class="bench-note">50 PRs, 141 golden comments, same benchmark</div>
+        <div class="bench-note">50 PRs, 141 golden comments, same benchmark, different evaluators</div>
       </div>
 
       <p style="font-size:12px;color:var(--dim2);margin-top:8px;line-height:1.7;">
-        Augment/Greptile/Cursor/CodeRabbit/Copilot recall/precision from <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment's blog post</a>. inspect precision = HC entities that correspond to a golden comment bug. Recall judged with keyword heuristic + LLM judge for borderline cases (binary caught/not-caught). Full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
+        Other tools' recall from <a href="https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results" style="color:var(--cyan)">Augment's blog post</a> (their own LLM-based evaluation). inspect recall from our keyword-matching heuristic + LLM judge for borderline cases (binary caught/not-caught, matching <a href="https://www.greptile.com/benchmarks" style="color:var(--cyan)">Greptile's methodology</a>). Different evaluation methods on the same benchmark. Full data on <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" style="color:var(--cyan)">HuggingFace</a>.
       </p>
     </section>
 
