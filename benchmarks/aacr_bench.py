@@ -343,10 +343,62 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, model="gpt-4o"):
     # or overlapping identifiers in description
     findings = _deduplicate_findings(findings)
 
-    # Mild confidence filter: cut low-confidence noise (no cap)
+    # Confidence filter: cut low-confidence noise
     findings = [f for f in findings if f.get("confidence", 3) >= 3]
 
+    # Per-PR cap: keep top findings by confidence, drop noise from large PRs
+    max_per_pr = 15
+    if len(findings) > max_per_pr:
+        findings.sort(key=lambda f: f.get("confidence", 3), reverse=True)
+        findings = findings[:max_per_pr]
+
     return findings
+
+
+def _select_best_findings(findings, model, max_count):
+    """LLM-based selection: pick the top N most important findings from a larger pool.
+
+    Instead of sorting by confidence score (which is per-entity and may not
+    reflect cross-PR importance), asks the LLM to compare all findings and
+    pick the most impactful ones.
+    """
+    findings_text = "\n".join(
+        f"#{i+1}: [{f.get('file', '')}:{f.get('line', '?')}] "
+        f"[conf={f.get('confidence', '?')}/5] {f.get('description', '')[:250]}"
+        for i, f in enumerate(findings)
+    )
+
+    prompt = (
+        f"You are filtering code review findings. Below are {len(findings)} findings "
+        f"from an automated code review tool. Select exactly {max_count} that are most "
+        f"likely to be REAL, ACTIONABLE issues a human reviewer would agree with.\n\n"
+        f"KEEP: confirmed bugs, logic errors, security issues, broken functionality, "
+        f"wrong return values, null dereferences, resource leaks, typos in APIs\n"
+        f"DROP: style preferences, speculative issues, nitpicks, vague warnings, "
+        f"optional improvements, pre-existing issues\n\n"
+        f"FINDINGS:\n{findings_text}\n\n"
+        f"Return a JSON array of the {max_count} selected finding numbers: "
+        f"[1, 3, 5, ...]\nOnly return JSON, no other text."
+    )
+
+    try:
+        result = _call_llm(prompt, model)
+        if isinstance(result, list) and len(result) > 0:
+            selected_ids = set()
+            for x in result:
+                try:
+                    selected_ids.add(int(x))
+                except (ValueError, TypeError):
+                    pass
+            selected = [f for i, f in enumerate(findings) if (i + 1) in selected_ids]
+            if len(selected) >= max_count // 2:  # Sanity check: at least half expected
+                return selected[:max_count]
+    except Exception:
+        pass
+
+    # Fallback: confidence-based cap
+    findings.sort(key=lambda f: f.get("confidence", 3), reverse=True)
+    return findings[:max_count]
 
 
 def _extract_file_diff(diff_text, file_path):
@@ -525,6 +577,73 @@ def _deduplicate_findings(findings):
             deduped.append(f)
 
     return deduped
+
+
+def _validate_findings(findings, diff_text, model):
+    """Second-pass validation: confirm findings are real bugs, not false positives.
+
+    Groups findings by file, sends each batch with the file diff to the LLM,
+    and asks it to rate each finding as KEEP (real bug) or DROP (false positive).
+    """
+    if not findings:
+        return findings
+
+    # Group findings by file
+    by_file = {}
+    for f in findings:
+        fp = f.get("file", "")
+        by_file.setdefault(fp, []).append(f)
+
+    tasks = []
+    for fp, file_findings in by_file.items():
+        file_diff = _extract_file_diff(diff_text, fp)[:4000] if diff_text else ""
+
+        findings_text = "\n".join(
+            f"#{i+1}: Line {f.get('line', '?')} [{f.get('confidence', '?')}/5] - {f.get('description', '')[:300]}"
+            for i, f in enumerate(file_findings)
+        )
+
+        prompt = (
+            "You are validating code review findings. For each finding below, decide:\n"
+            "- KEEP: real bug, security issue, logic error, or clear mistake introduced by this change\n"
+            "- DROP: false positive, style preference, pre-existing issue, optional improvement, or speculation\n\n"
+            "Be strict. Only KEEP findings that point to actual bugs introduced or worsened by this diff.\n\n"
+            f"File: {fp}\n\n"
+            f"DIFF:\n```diff\n{file_diff}\n```\n\n"
+            f"FINDINGS:\n{findings_text}\n\n"
+            'Respond with a JSON array: [{"id": 1, "verdict": "KEEP"}, {"id": 2, "verdict": "DROP"}, ...]\n'
+            "Only return JSON, no other text."
+        )
+        tasks.append((fp, file_findings, prompt))
+
+    validated = []
+    done_count = [0]
+
+    def _validate_batch(args):
+        fp, file_findings, prompt = args
+        try:
+            result = _call_llm(prompt, model)
+            keep_ids = set()
+            for item in result:
+                if isinstance(item, dict) and item.get("verdict", "").upper() == "KEEP":
+                    keep_ids.add(item.get("id", 0))
+            kept = [f for i, f in enumerate(file_findings) if (i + 1) in keep_ids]
+            # If validation returns nothing useful, keep all (fail-open)
+            if not keep_ids and file_findings:
+                return fp, file_findings
+            return fp, kept
+        except Exception:
+            # On error, keep all findings (fail-open)
+            return fp, file_findings
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(_validate_batch, t): t for t in tasks}
+        for future in concurrent.futures.as_completed(futures):
+            done_count[0] += 1
+            fp, kept = future.result()
+            validated.extend(kept)
+
+    return validated
 
 
 def _filter_by_confidence(findings, min_confidence=2, max_findings=25):
