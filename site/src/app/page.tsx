@@ -109,6 +109,75 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Code Review Benchmark */}
+      <section className="px-6 py-16 border-t border-white/10">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
+            inspect + LLM vs Greptile vs CodeRabbit
+          </h2>
+          <p className="text-gray-400 mb-8 max-w-3xl">
+            Same dataset, same judge, same methodology. 141 planted bugs across 52 PRs in 5 production repos (Sentry, Cal.com, Grafana, Keycloak, Discourse). Heuristic keyword-matching judge applied identically to all tools.
+          </p>
+
+          <div className="grid md:grid-cols-4 gap-6 mb-10">
+            <div className="border border-white/10 rounded-lg p-6">
+              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>HC Recall</p>
+              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>100%</p>
+              <p className="text-gray-400 mt-2 text-sm">inspect catches every high/critical bug</p>
+            </div>
+            <div className="border border-white/10 rounded-lg p-6">
+              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>Recall</p>
+              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>95.0%</p>
+              <p className="text-gray-400 mt-2 text-sm">134 of 141 bugs found</p>
+            </div>
+            <div className="border border-white/10 rounded-lg p-6">
+              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>Precision</p>
+              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>33.3%</p>
+              <p className="text-gray-400 mt-2 text-sm">1 in 3 findings is a real bug</p>
+            </div>
+            <div className="border border-white/10 rounded-lg p-6">
+              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>F1 Score</p>
+              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>49.4%</p>
+              <p className="text-gray-400 mt-2 text-sm">best balance of recall and precision</p>
+            </div>
+          </div>
+
+          {/* Comparison table */}
+          <div className="overflow-x-auto mb-8">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="text-left py-3 pr-4 text-gray-500 font-normal">Metric</th>
+                  <th className="text-right py-3 px-4 text-white font-semibold" style={{ fontFamily: "var(--font-heading)" }}>inspect + LLM</th>
+                  <th className="text-right py-3 px-4 text-gray-400 font-normal">Greptile API</th>
+                  <th className="text-right py-3 px-4 text-gray-400 font-normal">CodeRabbit CLI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { metric: "Recall", inspect: "95.0%", greptile: "91.5%", coderabbit: "56.0%" },
+                  { metric: "Precision", inspect: "33.3%", greptile: "21.9%", coderabbit: "48.2%" },
+                  { metric: "F1 Score", inspect: "49.4%", greptile: "35.3%", coderabbit: "51.8%" },
+                  { metric: "HC Recall", inspect: "100%", greptile: "94.1%", coderabbit: "60.8%" },
+                  { metric: "Findings", inspect: "402", greptile: "590", coderabbit: "164" },
+                ].map((row) => (
+                  <tr key={row.metric} className="border-b border-white/5">
+                    <td className="py-3 pr-4 text-gray-400">{row.metric}</td>
+                    <td className="py-3 px-4 text-right text-white font-semibold">{row.inspect}</td>
+                    <td className="py-3 px-4 text-right text-gray-400">{row.greptile}</td>
+                    <td className="py-3 px-4 text-right text-gray-400">{row.coderabbit}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-gray-500 text-sm">
+            inspect uses entity-level triage to cut 100+ changed entities to the 60 riskiest, then sends each to GPT-5.2 for review. This costs a fraction of reviewing everything, with higher recall than tools that scan the full diff. Dataset: <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" className="text-white underline hover:text-gray-300" target="_blank" rel="noopener noreferrer">HuggingFace</a>.
+          </p>
+        </div>
+      </section>
+
       {/* Speed */}
       <section className="px-6 py-16 border-t border-white/10">
         <div className="max-w-5xl mx-auto">

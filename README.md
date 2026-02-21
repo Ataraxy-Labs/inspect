@@ -142,9 +142,27 @@ Add to your Claude Code config:
 }
 ```
 
-## Benchmark Results
+## Code Review Benchmark
 
-Real results from running `inspect bench` against three Rust codebases (89 commits, 8,870 entities total):
+inspect + LLM vs Greptile vs CodeRabbit on the same dataset, same judge, same methodology. 141 planted bugs across 52 PRs in 5 production repos (Sentry, Cal.com, Grafana, Keycloak, Discourse).
+
+| Metric | inspect + LLM | Greptile API | CodeRabbit CLI |
+|--------|--------------|-------------|----------------|
+| Recall | **95.0%** | 91.5% | 56.0% |
+| Precision | 33.3% | 21.9% | **48.2%** |
+| F1 Score | 49.4% | 35.3% | **51.8%** |
+| HC Recall | **100%** | 94.1% | 60.8% |
+| Findings | 402 | 590 | 164 |
+
+inspect catches **95% of all bugs** and **100% of high-severity bugs**. CodeRabbit misses 44% of bugs overall and 39% of high-severity ones. Greptile has decent recall but produces 3x more noise.
+
+The approach: entity-level triage cuts 100+ changed entities to the 60 riskiest, then sends each to an LLM for review. This costs a fraction of reviewing the full diff, with higher recall than tools that scan everything.
+
+Dataset: [HuggingFace](https://huggingface.co/datasets/rs545837/inspect-greptile-bench). Judge: heuristic keyword matching applied identically to all tools.
+
+## Triage Benchmark
+
+Results from running `inspect bench` against three Rust codebases (89 commits, 8,870 entities total):
 
 | Metric | sem | weave | agenthub |
 |--------|-----|-------|----------|
