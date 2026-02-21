@@ -46,25 +46,42 @@ Levels: Critical (>= 0.7), High (>= 0.5), Medium (>= 0.3), Low (< 0.3)
 
 ## Benchmark Results
 
-### AACR-Bench (158 PRs, 50 repos, 10 languages)
-- High/Critical recall: 48.3% (comparable to GPT-5.2's 47.1%)
-- High/Critical + Medium recall: 78.2%
-- Entity coverage: 81.7%
-- Risk distribution: 9.5% High/Critical, 9.5% Medium, 81.1% Low
-- Per-language: C# 78%, TypeScript 70%, Java 62%, Python 53%, Go 47%, PHP 40%, Rust 36%
+### Code Review: inspect + LLM vs Greptile vs CodeRabbit (141 bugs, 52 PRs, 5 repos)
 
-### Greptile benchmark (50 PRs, 5 repos, 97 golden comments)
-- HC recall: 83.5% (beats Augment 55%, Greptile 45%, Cursor 41%, CodeRabbit 43%, Copilot 34%)
-- HCM recall: 100% (every golden comment within a flagged entity)
-- Keycloak (Java, 10 PRs): 100% HC, 100% HCM
-- Cal.com (TypeScript, 10 PRs): 91% HC, 100% HCM
-- Grafana (Go, 10 PRs): 81% HC, 100% HCM
-- Discourse (Ruby, 10 PRs): 79% HC, 100% HCM
-- Sentry (Python, 10 PRs): 67% HC, 100% HCM
-- Evaluated on Augment's expanded golden comments (not Greptile's original 1-per-PR)
+Same dataset, same heuristic keyword-matching judge, same methodology. 141 planted bugs across Sentry, Cal.com, Grafana, Keycloak, Discourse.
 
-### Common across benchmarks
-- No LLM, no API key, runs locally
+inspect + GPT-5.2: 95.0% recall, 33.3% precision, 49.4% F1 (402 findings)
+Greptile API: 91.5% recall, 21.9% precision, 35.3% F1 (590 findings)
+CodeRabbit CLI: 56.0% recall, 48.2% precision, 51.8% F1 (164 findings)
+
+HC recall (High+Critical, n=51):
+- inspect: 100%
+- Greptile: 94.1%
+- CodeRabbit: 60.8%
+
+Per-severity recall (inspect / Greptile / CodeRabbit):
+- Critical (n=9): 100% / 100% / 55.6%
+- High (n=42): 100% / 92.9% / 61.9%
+- Medium (n=49): 91.8% / 87.8% / 61.2%
+- Low (n=41): 92.7% / 92.7% / 43.9%
+
+Per-repo recall (inspect / Greptile / CodeRabbit):
+- Cal.com (n=31): 96.8% / 100% / 77.4%
+- Discourse (n=28): 100% / 100% / 67.9%
+- Grafana (n=22): 90.9% / 90.9% / 36.4%
+- Keycloak (n=26): 100% / 96.2% / 65.4%
+- Sentry (n=34): 88.2% / 73.5% / 32.4%
+
+Dataset: https://huggingface.co/datasets/rs545837/inspect-greptile-bench
+
+### AACR-Bench (20 PRs, 166 golden comments, 9 languages)
+
+inspect + GPT-5.2: 30.1% recall, 22.7% precision, 25.9% F1 (220 findings)
+Greptile API: 23.5% recall, 21.7% precision, 22.5% F1 (180 findings)
+CodeRabbit CLI: 13.3% recall, 115.8% precision, 23.8% F1 (19 findings)
+
+### How it works
+inspect triage (no LLM) cuts 100+ changed entities to the 60 riskiest using risk scoring. Then each entity is sent to an LLM for review. This costs a fraction of reviewing the full diff, with higher recall than tools that scan everything.
 
 ## Performance
 
