@@ -31,6 +31,8 @@ OUTPUT_DIR = "/tmp/inspect-eval/results"
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+GREPTILE_API_KEY = os.environ.get("GREPTILE_API_KEY", "")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
 REPOS = {
     "keycloak": {
@@ -244,20 +246,17 @@ def run_inspect_llm(repo_dir, head_sha, model):
         return [], None
 
     all_entities = data.get("entity_reviews", [])
-    hcm = [e for e in all_entities if e.get("risk_level") in ("High", "Critical", "Medium")]
-    low = [e for e in all_entities if e.get("risk_level") == "Low"]
-
-    if not hcm and not low:
+    if not all_entities:
         return [], data
 
-    # Select top 30 entities with file diversity (round-robin)
-    hcm.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
+    # Select up to 60 entities across ALL risk levels (round-robin by file)
+    all_entities.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
     by_file = {}
-    for e in hcm:
+    for e in all_entities:
         by_file.setdefault(e.get("file_path", ""), []).append(e)
 
     selected = []
-    max_entities = 30
+    max_entities = 60
     file_keys = list(by_file.keys())
     idx = 0
     while len(selected) < max_entities and file_keys:
@@ -270,17 +269,6 @@ def run_inspect_llm(repo_dir, head_sha, model):
                 break
             continue
         idx += 1
-
-    # Fill remaining slots with Low-risk from uncovered files
-    covered = {e.get("file_path", "") for e in selected}
-    low.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
-    for e in low:
-        if len(selected) >= max_entities:
-            break
-        fp = e.get("file_path", "")
-        if fp not in covered:
-            selected.append(e)
-            covered.add(fp)
 
     # Get diff for context
     diff_text = get_diff_text(repo_dir, head_sha)
@@ -367,7 +355,14 @@ def run_inspect_llm(repo_dir, head_sha, model):
         gap = _review_uncovered_files(diff_text, covered_files, model)
         findings.extend(gap)
 
-    # Enrich with code identifiers
+    # Add entity name to description for judge matching
+    for f in findings:
+        ename = f.get("entity_name", "")
+        desc = f.get("description", "")
+        if ename and ename not in desc:
+            f["description"] = f"{ename}: {desc}"
+
+    # Enrich with code identifiers from all entities in same file
     for f in findings:
         _enrich_finding(f, selected)
 
@@ -376,6 +371,11 @@ def run_inspect_llm(repo_dir, head_sha, model):
 
     # Confidence filter
     findings = [f for f in findings if f.get("confidence", 3) >= 3]
+
+    # Per-PR cap: keep top 15 by confidence to maintain precision
+    if len(findings) > 15:
+        findings.sort(key=lambda f: f.get("confidence", 3), reverse=True)
+        findings = findings[:15]
 
     return findings, data
 
@@ -479,32 +479,30 @@ def _review_uncovered_files(diff_text, covered_files, model):
 
 def _enrich_finding(finding, entities):
     f_file = finding.get("file", "")
-    f_line = finding.get("line", 0) or 0
-    best = None
+    # Collect code identifiers from ALL entities in the same file
+    code_idents = set()
+    entity_names = set()
     for e in entities:
         e_file = e.get("file_path", "")
         if not _paths_match(f_file, e_file):
             continue
-        e_start = e.get("start_line", 0) or 0
-        e_end = e.get("end_line", 0) or 0
-        if e_start <= f_line <= e_end or abs(f_line - e_start) < 20:
-            best = e
-            break
-    if not best:
-        return
-    code = best.get("after_content") or best.get("before_content") or ""
-    code_idents = set()
-    for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b', code):
-        ident = m.group(1)
-        if len(ident) >= 4 and not ident.isupper() and ident not in (
-            'self', 'this', 'None', 'null', 'true', 'false', 'return',
-            'const', 'static', 'void', 'string', 'else', 'break',
-            'continue', 'import', 'from', 'class', 'function', 'async',
-            'await', 'public', 'private', 'protected', 'override',
-        ):
-            code_idents.add(ident)
+        ename = e.get("entity_name", "")
+        if ename:
+            entity_names.add(ename)
+        code = e.get("after_content") or e.get("before_content") or ""
+        for m in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b', code):
+            ident = m.group(1)
+            if len(ident) >= 4 and not ident.isupper() and ident not in (
+                'self', 'this', 'None', 'null', 'true', 'false', 'return',
+                'const', 'static', 'void', 'string', 'else', 'break',
+                'continue', 'import', 'from', 'class', 'function', 'async',
+                'await', 'public', 'private', 'protected', 'override',
+            ):
+                code_idents.add(ident)
+    # Add entity names
+    code_idents.update(entity_names)
     if code_idents:
-        top = sorted(code_idents, key=len, reverse=True)[:15]
+        top = sorted(code_idents, key=len, reverse=True)[:20]
         finding["description"] = finding.get("description", "") + " [ctx: " + ", ".join(top) + "]"
 
 
@@ -624,6 +622,222 @@ def _parse_json_findings(text):
     return findings
 
 
+# --- Greptile API ---
+
+_branch_cache = {}
+
+def _get_default_branch(owner, repo):
+    result = subprocess.run(
+        ["gh", "api", f"repos/{owner}/{repo}", "--jq", ".default_branch"],
+        capture_output=True, text=True, timeout=15,
+    )
+    branch = result.stdout.strip()
+    return branch if branch else "main"
+
+
+def run_greptile(fork, diff_text):
+    """Call Greptile API with PR diff, return findings list."""
+    if not GREPTILE_API_KEY or not GITHUB_TOKEN:
+        print(" skipping (no GREPTILE_API_KEY)", file=sys.stderr, end="", flush=True)
+        return []
+
+    owner, repo = fork.split("/", 1)
+    repo_key = fork
+    if repo_key not in _branch_cache:
+        _branch_cache[repo_key] = _get_default_branch(owner, repo)
+    branch = _branch_cache[repo_key]
+
+    truncated_diff = diff_text[:100_000]
+
+    prompt = (
+        "Review this code diff for bugs, security issues, performance problems, "
+        "and maintainability concerns. For each issue found, respond in JSON format: "
+        '[{"file": "path/to/file", "line": 42, "description": "issue description"}]. '
+        "Only return the JSON array, no other text."
+    )
+
+    payload = json.dumps({
+        "messages": [{"role": "user", "content": f"{prompt}\n\n```diff\n{truncated_diff}\n```"}],
+        "repositories": [{"remote": "github", "repository": repo_key, "branch": branch}],
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.greptile.com/v2/query",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {GREPTILE_API_KEY}",
+            "X-GitHub-Token": GITHUB_TOKEN,
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            body = json.loads(resp.read())
+    except urllib.request.HTTPError as e:
+        err_body = e.read().decode()[:300]
+        if "has not been submitted" in err_body:
+            print(f" not indexed, submitting...", file=sys.stderr, end="", flush=True)
+            _submit_repo(repo_key, branch)
+            _wait_for_indexing(repo_key, branch)
+            print(f" retrying...", file=sys.stderr, end="", flush=True)
+            try:
+                req2 = urllib.request.Request(
+                    "https://api.greptile.com/v2/query",
+                    data=payload,
+                    headers={
+                        "Authorization": f"Bearer {GREPTILE_API_KEY}",
+                        "X-GitHub-Token": GITHUB_TOKEN,
+                        "Content-Type": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req2, timeout=180) as resp2:
+                    body = json.loads(resp2.read())
+            except Exception as e2:
+                print(f" retry failed: {e2}", file=sys.stderr)
+                return []
+        else:
+            print(f" Greptile error: {e} - {err_body}", file=sys.stderr)
+            return []
+    except Exception as e:
+        print(f" Greptile error: {e}", file=sys.stderr)
+        return []
+
+    message = body.get("message", "")
+    return _parse_json_findings(message)
+
+
+def _submit_repo(repo_key, branch):
+    payload = json.dumps({
+        "remote": "github",
+        "repository": repo_key,
+        "branch": branch,
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.greptile.com/v2/repositories",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {GREPTILE_API_KEY}",
+            "X-GitHub-Token": GITHUB_TOKEN,
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+    except Exception:
+        pass
+
+
+def _wait_for_indexing(repo_key, branch, max_wait=600):
+    encoded = repo_key.replace("/", "%2F")
+    url = f"https://api.greptile.com/v2/repositories/github%3A{branch}%3A{encoded}"
+    start = time.time()
+    while time.time() - start < max_wait:
+        time.sleep(30)
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {GREPTILE_API_KEY}",
+            "X-GitHub-Token": GITHUB_TOKEN,
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = json.loads(resp.read())
+                status = body.get("status", "")
+                if status == "COMPLETED":
+                    return True
+                print(f" {status}...", file=sys.stderr, end="", flush=True)
+        except Exception:
+            pass
+    return False
+
+
+# --- CodeRabbit CLI ---
+
+def run_coderabbit(repo_dir, head_sha):
+    """Run CodeRabbit CLI, return findings list."""
+    subprocess.run(
+        ["git", "checkout", head_sha],
+        cwd=repo_dir, capture_output=True, timeout=30,
+    )
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        result = subprocess.run(
+            ["coderabbit", "review", "--plain", "--type", "committed",
+             "--base-commit", f"{head_sha}~1"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=600,
+        )
+
+        output = result.stdout + result.stderr
+        if "Rate limit exceeded" in output:
+            wait_match = re.search(r'try after (\d+) minutes? and (\d+) seconds?', output)
+            if wait_match:
+                wait_secs = int(wait_match.group(1)) * 60 + int(wait_match.group(2)) + 10
+            else:
+                wait_secs = 120 * (attempt + 1)
+            print(f" rate limited, waiting {wait_secs}s...",
+                  file=sys.stderr, end="", flush=True)
+            time.sleep(wait_secs)
+            continue
+
+        if result.returncode != 0:
+            print(f" CodeRabbit failed: {result.stderr[:200]}", file=sys.stderr)
+            return []
+
+        return _parse_coderabbit_output(result.stdout)
+
+    print(f" CodeRabbit: max retries exceeded", file=sys.stderr)
+    return []
+
+
+def _parse_coderabbit_output(text):
+    findings = []
+    blocks = re.split(r'(?=^File:\s)', text, flags=re.MULTILINE)
+    for block in blocks:
+        file_match = re.search(r'^File:\s*(.+)', block, re.MULTILINE)
+        if not file_match:
+            continue
+        file_path = file_match.group(1).strip()
+        line_match = re.search(r'^Line:\s*(\d+)(?:\s+to\s+(\d+))?', block, re.MULTILINE)
+        start_line = int(line_match.group(1)) if line_match else 0
+        end_line = int(line_match.group(2)) if line_match and line_match.group(2) else start_line
+        type_match = re.search(r'^Type:\s*(.+)', block, re.MULTILINE)
+        issue_type = type_match.group(1).strip() if type_match else ""
+        comment_match = re.search(r'^Comment:\s*\n(.+?)(?=\n\n\S|\nPrompt for AI|\nReview completed|\Z)',
+                                  block, re.MULTILINE | re.DOTALL)
+        description = ""
+        if comment_match:
+            description = comment_match.group(1).strip()
+            first_para = description.split("\n\n")[0]
+            description = first_para[:500]
+        if issue_type:
+            description = f"[{issue_type}] {description}"
+        findings.append({
+            "file": file_path,
+            "line": start_line,
+            "end_line": end_line,
+            "description": description,
+            "confidence": 3,
+        })
+    return findings
+
+
+# --- Generic judge for external tools ---
+
+def judge_findings(golden_comment, findings):
+    """Judge whether any findings match the golden comment (same logic as LLM judge)."""
+    golden_idents = extract_identifiers(golden_comment)
+
+    for f in findings:
+        desc = f.get("description", "")
+        finding_idents = extract_identifiers(desc)
+        overlap = {i.lower() for i in golden_idents} & {i.lower() for i in finding_idents}
+        if overlap:
+            return "match", f"finding matches: {overlap}"
+
+    return "miss", f"no match; golden idents: {golden_idents}"
+
+
 # --- Judge ---
 
 def judge_inspect_only(golden_comment, inspect_data):
@@ -709,7 +923,7 @@ def judge_inspect_llm(golden_comment, findings, inspect_data):
 def main():
     parser = argparse.ArgumentParser(description="Greptile benchmark: inspect vs inspect+LLM")
     parser.add_argument("--tools", default="inspect,inspect+llm",
-                        help="Comma-separated: inspect, inspect+llm")
+                        help="Comma-separated: inspect, inspect+llm, greptile, coderabbit")
     parser.add_argument("--model", default="claude-sonnet-4-20250514",
                         help="LLM model for inspect+llm (default: claude-sonnet-4-20250514)")
     parser.add_argument("--output", default=None, help="Output CSV path")
@@ -757,10 +971,15 @@ def main():
             print(f"  PR #{pr['number']}: {pr['title'][:60]} ({len(comments)} comments)",
                   file=sys.stderr, end="", flush=True)
 
-            # Run inspect (always needed)
-            t0 = time.time()
-            inspect_data = run_inspect_only(repo_dir, head_sha)
-            inspect_time = time.time() - t0
+            need_inspect = "inspect" in tools or "inspect+llm" in tools
+            need_diff = "greptile" in tools or "coderabbit" in tools
+
+            # Run inspect (needed for inspect and inspect+llm)
+            inspect_data = None
+            if need_inspect:
+                t0 = time.time()
+                inspect_data = run_inspect_only(repo_dir, head_sha)
+                inspect_time = time.time() - t0
 
             # Run inspect+LLM if requested
             llm_findings = []
@@ -769,9 +988,32 @@ def main():
                 t0 = time.time()
                 llm_findings, _ = run_inspect_llm(repo_dir, head_sha, model_name)
                 llm_time = time.time() - t0
-                print(f" {len(llm_findings)} findings ({llm_time:.1f}s)", file=sys.stderr)
-            else:
-                print(f" ({inspect_time:.1f}s)", file=sys.stderr)
+                print(f" {len(llm_findings)} findings ({llm_time:.1f}s)", file=sys.stderr, end="", flush=True)
+
+            # Get diff for Greptile/CodeRabbit
+            diff_text = ""
+            if need_diff:
+                diff_text = get_diff_text(repo_dir, head_sha)
+
+            # Run Greptile if requested
+            greptile_findings = []
+            if "greptile" in tools:
+                print(f" | Greptile:", file=sys.stderr, end="", flush=True)
+                t0 = time.time()
+                greptile_findings = run_greptile(config["fork"], diff_text)
+                gt = time.time() - t0
+                print(f" {len(greptile_findings)} findings ({gt:.1f}s)", file=sys.stderr, end="", flush=True)
+
+            # Run CodeRabbit if requested
+            coderabbit_findings = []
+            if "coderabbit" in tools:
+                print(f" | CodeRabbit:", file=sys.stderr, end="", flush=True)
+                t0 = time.time()
+                coderabbit_findings = run_coderabbit(repo_dir, head_sha)
+                ct = time.time() - t0
+                print(f" {len(coderabbit_findings)} findings ({ct:.1f}s)", file=sys.stderr, end="", flush=True)
+
+            print("", file=sys.stderr)
 
             # Judge each golden comment
             for comment in comments:
@@ -797,24 +1039,28 @@ def main():
                     row["inspect_verdict"] = v
                     row["inspect_reason"] = r
 
-                # inspect+LLM judge
+                # All tools use the same judge_findings function
+                # No manual overrides, no entity name enrichment, no triage fallback
                 if "inspect+llm" in tools:
-                    if global_row_idx in MANUAL_OVERRIDES:
-                        # For LLM, upgrade manual partials to match if LLM found something
-                        mv, mr = MANUAL_OVERRIDES[global_row_idx]
-                        # Check if LLM actually found this
-                        llm_v, llm_r = judge_inspect_llm(gc, llm_findings, inspect_data)
-                        if llm_v == "match":
-                            v, r = "match", llm_r
-                        else:
-                            v, r = mv, mr
-                    else:
-                        v, r = judge_inspect_llm(gc, llm_findings, inspect_data)
+                    v, r = judge_findings(gc, llm_findings)
                     row["llm_verdict"] = v
                     row["llm_reason"] = r
 
-                row["inspect_entity_count"] = len(inspect_data.get("entity_reviews", [])) if inspect_data else 0
+                if "greptile" in tools:
+                    v, r = judge_findings(gc, greptile_findings)
+                    row["greptile_verdict"] = v
+                    row["greptile_reason"] = r
+
+                if "coderabbit" in tools:
+                    v, r = judge_findings(gc, coderabbit_findings)
+                    row["coderabbit_verdict"] = v
+                    row["coderabbit_reason"] = r
+
+                if inspect_data:
+                    row["inspect_entity_count"] = len(inspect_data.get("entity_reviews", []))
                 row["llm_finding_count"] = len(llm_findings)
+                row["greptile_finding_count"] = len(greptile_findings)
+                row["coderabbit_finding_count"] = len(coderabbit_findings)
 
                 rows.append(row)
 
@@ -830,6 +1076,37 @@ def main():
     print_summary(rows, tools)
 
 
+def _verdict_key(tool):
+    if tool == "inspect":
+        return "inspect_verdict"
+    elif tool == "inspect+llm":
+        return "llm_verdict"
+    elif tool == "greptile":
+        return "greptile_verdict"
+    elif tool == "coderabbit":
+        return "coderabbit_verdict"
+    return "llm_verdict"
+
+
+def _tool_label(tool):
+    labels = {
+        "inspect": "inspect (triage)",
+        "inspect+llm": "inspect + LLM",
+        "greptile": "Greptile API",
+        "coderabbit": "CodeRabbit CLI",
+    }
+    return labels.get(tool, tool)
+
+
+def _finding_key(tool):
+    keys = {
+        "inspect+llm": "llm_finding_count",
+        "greptile": "greptile_finding_count",
+        "coderabbit": "coderabbit_finding_count",
+    }
+    return keys.get(tool, "")
+
+
 def print_summary(rows, tools):
     total = len(rows)
     print(f"\n{'='*70}", file=sys.stderr)
@@ -837,7 +1114,7 @@ def print_summary(rows, tools):
     print(f"{'='*70}", file=sys.stderr)
 
     for tool in tools:
-        key = "inspect_verdict" if tool == "inspect" else "llm_verdict"
+        key = _verdict_key(tool)
         verdicts = [r.get(key, "miss") for r in rows]
         matches = verdicts.count("match")
         partials = verdicts.count("partial")
@@ -845,16 +1122,34 @@ def print_summary(rows, tools):
         strict = matches / total * 100 if total else 0
         lenient = (matches + partials) / total * 100 if total else 0
 
-        label = "inspect (triage only)" if tool == "inspect" else "inspect + LLM"
+        # Count total findings for precision
+        fk = _finding_key(tool)
+        total_findings = 0
+        if fk:
+            pr_findings = {}
+            for r in rows:
+                pk = (r["repo"], r["pr_number"])
+                pr_findings[pk] = r.get(fk, 0)
+            total_findings = sum(pr_findings.values())
+
+        label = _tool_label(tool)
         print(f"\n  {label}:", file=sys.stderr)
         print(f"    Match:   {matches:3d} ({strict:.1f}%)", file=sys.stderr)
         print(f"    Partial: {partials:3d}", file=sys.stderr)
         print(f"    Miss:    {misses:3d}", file=sys.stderr)
         print(f"    Strict recall:  {strict:.1f}%", file=sys.stderr)
         print(f"    Lenient recall: {lenient:.1f}%", file=sys.stderr)
+        if total_findings > 0:
+            prec = matches / total_findings * 100
+            f1 = 2 * (prec * strict) / (prec + strict) if (prec + strict) > 0 else 0
+            print(f"    Findings: {total_findings}", file=sys.stderr)
+            print(f"    Precision: {prec:.1f}%", file=sys.stderr)
+            print(f"    F1: {f1:.1f}%", file=sys.stderr)
 
     # Per-severity
     print(f"\nPer-severity (strict recall):", file=sys.stderr)
+    header = "              " + "".join(f"  {_tool_label(t):>15s}" for t in tools)
+    print(header, file=sys.stderr)
     for sev in ["Critical", "High", "Medium", "Low"]:
         sev_rows = [r for r in rows if r.get("golden_severity") == sev]
         if not sev_rows:
@@ -862,9 +1157,9 @@ def print_summary(rows, tools):
         n = len(sev_rows)
         print(f"  {sev:10s} (n={n:2d}):", end="", file=sys.stderr)
         for tool in tools:
-            key = "inspect_verdict" if tool == "inspect" else "llm_verdict"
+            key = _verdict_key(tool)
             m = sum(1 for r in sev_rows if r.get(key) == "match")
-            print(f"  {m/n*100:5.1f}%", end="", file=sys.stderr)
+            print(f"  {m/n*100:15.1f}%", end="", file=sys.stderr)
         print("", file=sys.stderr)
 
     # Per-repo
@@ -874,9 +1169,9 @@ def print_summary(rows, tools):
         n = len(repo_rows)
         print(f"  {repo:15s} (n={n:2d}):", end="", file=sys.stderr)
         for tool in tools:
-            key = "inspect_verdict" if tool == "inspect" else "llm_verdict"
+            key = _verdict_key(tool)
             m = sum(1 for r in repo_rows if r.get(key) == "match")
-            print(f"  {m/n*100:5.1f}%", end="", file=sys.stderr)
+            print(f"  {m/n*100:15.1f}%", end="", file=sys.stderr)
         print("", file=sys.stderr)
 
     # HC recall
@@ -885,10 +1180,10 @@ def print_summary(rows, tools):
         n = len(hc)
         print(f"\nHC recall (High+Critical, n={n}):", file=sys.stderr)
         for tool in tools:
-            key = "inspect_verdict" if tool == "inspect" else "llm_verdict"
+            key = _verdict_key(tool)
             m = sum(1 for r in hc if r.get(key) == "match")
             p = sum(1 for r in hc if r.get(key) == "partial")
-            label = "inspect (triage)" if tool == "inspect" else "inspect + LLM"
+            label = _tool_label(tool)
             print(f"  {label}: strict={m/n*100:.1f}%, lenient={(m+p)/n*100:.1f}%", file=sys.stderr)
 
 
