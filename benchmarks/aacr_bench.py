@@ -139,6 +139,71 @@ def get_diff_text(repo_dir, base_sha, head_sha):
     return result.stdout if result.returncode == 0 else ""
 
 
+def _run_linters(repo_dir, base_sha, head_sha):
+    """Run semgrep + ruff on changed files, return findings grouped by file.
+
+    Returns: dict[file_path] -> list[{line, rule, message}]
+    """
+    # Get list of changed files
+    result = subprocess.run(
+        ["git", "diff", "--name-only", base_sha, head_sha],
+        cwd=repo_dir, capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        return {}
+
+    changed_files = [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
+    if not changed_files:
+        return {}
+
+    findings = {}  # file -> [{line, rule, message}]
+
+    # Run semgrep on changed files
+    try:
+        target_files = [os.path.join(repo_dir, f) for f in changed_files
+                        if os.path.exists(os.path.join(repo_dir, f))]
+        if target_files:
+            cmd = ["semgrep", "--config", "auto", "--json", "--quiet",
+                   "--max-target-bytes", "500000", "--timeout", "30"] + target_files
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=repo_dir)
+            if res.returncode == 0 and res.stdout:
+                data = json.loads(res.stdout)
+                for r in data.get("results", []):
+                    fp = r.get("path", "")
+                    # Make path relative to repo_dir
+                    if fp.startswith(repo_dir):
+                        fp = fp[len(repo_dir):].lstrip("/")
+                    findings.setdefault(fp, []).append({
+                        "line": r.get("start", {}).get("line", 0),
+                        "rule": r.get("check_id", "").split(".")[-1],
+                        "message": r.get("extra", {}).get("message", "")[:200],
+                    })
+    except Exception:
+        pass
+
+    # Run ruff on Python files
+    py_files = [os.path.join(repo_dir, f) for f in changed_files
+                if f.endswith(".py") and os.path.exists(os.path.join(repo_dir, f))]
+    if py_files:
+        try:
+            cmd = ["ruff", "check", "--output-format", "json", "--select", "E,W,F,B,S"] + py_files
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60, cwd=repo_dir)
+            if res.stdout:
+                for r in json.loads(res.stdout):
+                    fp = r.get("filename", "")
+                    if fp.startswith(repo_dir):
+                        fp = fp[len(repo_dir):].lstrip("/")
+                    findings.setdefault(fp, []).append({
+                        "line": r.get("location", {}).get("row", 0),
+                        "rule": r.get("code", ""),
+                        "message": r.get("message", "")[:200],
+                    })
+        except Exception:
+            pass
+
+    return findings
+
+
 # --- Tool runners ---
 
 def run_inspect(repo_dir, base_sha, head_sha):
