@@ -13,7 +13,7 @@
       <div class="links">
         <a href="index.html">Home</a>
         <a href="benchmarks.html">Benchmarks</a>
-        <a href="docs.html" class="active">Docs</a>
+        <a href="docs.html" class="active">Docs & API</a>
         <a href="changelog.html">Changelog</a>
         <a href="https://github.com/Ataraxy-Labs/inspect">GitHub</a>
         <a href="llms.txt">llms.txt</a>
@@ -176,6 +176,80 @@
           <tr><td>Fortran</td><td>.f90 .f95 .f03 .f08</td><td>functions, subroutines, modules, programs</td></tr>
         </tbody>
       </table>
+    </section>
+
+    <!-- HTTP API -->
+    <section>
+      <h2>HTTP API</h2>
+      <p class="section-desc">
+        REST API for integrating inspect into CI pipelines, bots, and custom workflows. Submit a PR, get back findings. Uses the deep_v2 strategy: two-temperature LLM review with diff-aware validation.
+      </p>
+
+      <div class="cmd-doc">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">POST /api/review</span>
+          <span class="cmd-doc-desc">Submit a PR for review. Returns findings.</span>
+        </div>
+        <div class="terminal" style="margin-top: 12px;">
+          <div class="terminal-body" style="padding: 16px 20px;">
+<pre><span class="cmd">$ curl -X POST https://inspect-review.vercel.app/api/review \</span>
+<span class="cmd">    -H "Content-Type: application/json" \</span>
+<span class="cmd">    -d '{"repo":"owner/repo","pr_number":123}'</span>
+
+<span class="d">// Response</span>
+{
+  <span class="c">"pr"</span>: { <span class="c">"number"</span>: 123, <span class="c">"title"</span>: <span class="g">"Fix auth bypass"</span>, ... },
+  <span class="c">"findings"</span>: [
+    {
+      <span class="c">"issue"</span>: <span class="g">"Missing origin validation in CORS handler"</span>,
+      <span class="c">"evidence"</span>: <span class="g">"if (origin.indexOf('example.com') !== -1)"</span>,
+      <span class="c">"severity"</span>: <span class="r">"critical"</span>,
+      <span class="c">"file"</span>: <span class="g">"src/middleware/cors.ts"</span>
+    }
+  ],
+  <span class="c">"summary"</span>: { <span class="c">"total_findings"</span>: 3, <span class="c">"files_analyzed"</span>: 12 },
+  <span class="c">"timing"</span>: { <span class="c">"triage_ms"</span>: 1200, <span class="c">"review_ms"</span>: 18000, <span class="c">"total_ms"</span>: 19200 }
+}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="cmd-doc" style="margin-top: 24px;">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">POST /api/triage</span>
+          <span class="cmd-doc-desc">File-level triage only. No LLM call. Returns in 1-3s.</span>
+        </div>
+        <div class="terminal" style="margin-top: 12px;">
+          <div class="terminal-body" style="padding: 16px 20px;">
+<pre><span class="cmd">$ curl -X POST https://inspect-review.vercel.app/api/triage \</span>
+<span class="cmd">    -H "Content-Type: application/json" \</span>
+<span class="cmd">    -d '{"repo":"owner/repo","pr_number":123}'</span>
+
+<span class="d">// Response</span>
+{
+  <span class="c">"pr"</span>: { <span class="c">"number"</span>: 123, <span class="c">"title"</span>: <span class="g">"Fix auth bypass"</span> },
+  <span class="c">"files_analyzed"</span>: 8,
+  <span class="c">"files"</span>: [
+    { <span class="c">"file"</span>: <span class="g">"src/auth.ts"</span>, <span class="c">"additions"</span>: 45, <span class="c">"deletions"</span>: 12 }
+  ],
+  <span class="c">"timing_ms"</span>: 1400
+}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="cmd-doc" style="margin-top: 24px;">
+        <div class="cmd-doc-header">
+          <span class="cmd-doc-name">GET /api/health</span>
+          <span class="cmd-doc-desc">Health check</span>
+        </div>
+        <div class="terminal" style="margin-top: 12px;">
+          <div class="terminal-body" style="padding: 16px 20px;">
+<pre><span class="cmd">$ curl https://inspect-review.vercel.app/api/health</span>
+{<span class="c">"status"</span>: <span class="g">"ok"</span>}</pre>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- MCP Server -->
