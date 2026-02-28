@@ -320,6 +320,93 @@ $ inspect pr 42 --min-risk high --format json`}</code></pre>
         </div>
       </section>
 
+      {/* HTTP API */}
+      <section className="px-6 py-16 border-t border-white/10">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold mb-12" style={{ fontFamily: "var(--font-heading)" }}>
+            HTTP API
+          </h2>
+          <p className="text-gray-400 mb-8 max-w-3xl">
+            REST API for integrating inspect into CI pipelines, bots, and custom workflows. Submit a PR, get back findings. Uses the deep_v2 strategy: two-temperature LLM review with entity-level triage and diff-aware validation.
+          </p>
+
+          <div className="mb-10">
+            <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>Quick Start</h3>
+            <pre><code>{`# Install and run
+cargo install --git https://github.com/Ataraxy-Labs/inspect inspect-api
+
+OPENAI_API_KEY=sk-... GITHUB_TOKEN=ghp_... inspect-api`}</code></pre>
+          </div>
+
+          <div className="mb-12">
+            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>POST /v1/review</h3>
+            <p className="text-gray-400 mb-4">Submit a PR for async review. Returns a job ID to poll.</p>
+            <pre><code>{`curl -X POST localhost:3000/v1/review \\
+  -H "Content-Type: application/json" \\
+  -d '{"repo":"facebook/react","pr_number":28000}'
+
+# Response (202 Accepted)
+{"id":"abc-123","status":"pending"}`}</code></pre>
+          </div>
+
+          <div className="mb-12">
+            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>GET /v1/review/:id</h3>
+            <p className="text-gray-400 mb-4">Poll job status. Returns findings when complete.</p>
+            <pre><code>{`curl localhost:3000/v1/review/abc-123
+
+# Response (200 OK, when complete)
+{
+  "id": "abc-123",
+  "status": "complete",
+  "result": {
+    "findings": [
+      {"issue": "Missing null check in parseConfig", "evidence": "config.get()..."}
+    ],
+    "triage": {
+      "verdict": "RequiresReview",
+      "total_entities": 42,
+      "stats": {"critical": 1, "high": 3, "medium": 8, "low": 30}
+    },
+    "timing": {"triage_ms": 2400, "review_ms": 18000, "total_ms": 20400}
+  }
+}`}</code></pre>
+          </div>
+
+          <div className="mb-12">
+            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>POST /v1/triage</h3>
+            <p className="text-gray-400 mb-4">Synchronous entity triage only. No LLM call. Returns in 2-5s.</p>
+            <pre><code>{`curl -X POST localhost:3000/v1/triage \\
+  -H "Content-Type: application/json" \\
+  -d '{"repo":"facebook/react","pr_number":28000}'
+
+# Response (200 OK)
+{
+  "verdict": "RequiresCarefulReview",
+  "total_entities": 42,
+  "entities": [...],
+  "stats": {"critical": 1, "high": 3, "medium": 8, "low": 30},
+  "timing_ms": 2400
+}`}</code></pre>
+          </div>
+
+          <div className="mb-8">
+            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>GET /health</h3>
+            <pre><code>{`curl localhost:3000/health
+# {"status":"ok"}`}</code></pre>
+          </div>
+
+          <div className="border border-white/10 rounded-lg p-6 mt-10">
+            <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Environment Variables</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-gray-400"><code>OPENAI_API_KEY</code></span><span className="text-gray-500">Required. OpenAI API key for LLM review.</span></div>
+              <div className="flex justify-between"><span className="text-gray-400"><code>GITHUB_TOKEN</code></span><span className="text-gray-500">Required. GitHub token for PR access.</span></div>
+              <div className="flex justify-between"><span className="text-gray-400"><code>PORT</code></span><span className="text-gray-500">Server port. Default: 3000.</span></div>
+              <div className="flex justify-between"><span className="text-gray-400"><code>OPENAI_MODEL</code></span><span className="text-gray-500">LLM model. Default: gpt-4o.</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Change Classification */}
       <section className="px-6 py-16 border-t border-white/10">
         <div className="max-w-5xl mx-auto">
@@ -434,7 +521,9 @@ $ inspect pr 42 --min-risk high --format json`}</code></pre>
           </h2>
           <pre><code>{`inspect/crates/
   inspect-core/   Analysis engine: classify, risk score, untangle
-  inspect-cli/    CLI: diff, pr, file, bench commands`}</code></pre>
+  inspect-cli/    CLI: diff, pr, file, bench commands
+  inspect-mcp/    MCP server: 6 tools for AI agents
+  inspect-api/    HTTP API: REST endpoints, async jobs, LLM review`}</code></pre>
           <p className="text-gray-400 mt-4 text-sm">
             Built in Rust. Entity extraction powered by <a href="https://github.com/Ataraxy-Labs/sem" className="text-white underline hover:text-gray-300">sem-core</a> with tree-sitter. Full-repo entity graph built from all tracked source files via <code>git ls-files</code>.
           </p>
