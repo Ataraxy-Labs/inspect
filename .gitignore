@@ -2,3 +2,5 @@
 *.DS_Store
 site/.next
 site/node_modules
+site/.env
+site/.env.local
