@@ -79,12 +79,12 @@ fn categorize_line(line: &str, has_text: &mut bool, has_syntax: &mut bool, has_f
 
 fn is_comment_line(line: &str) -> bool {
     line.starts_with("//")
-        || line.starts_with('#')
         || line.starts_with("/*")
         || line.starts_with('*')
         || line.starts_with("///")
         || line.starts_with("/**")
         || line.starts_with("\"\"\"")
+        || (line.starts_with('#') && !line.starts_with("#["))
 }
 
 fn is_syntax_line(line: &str) -> bool {
