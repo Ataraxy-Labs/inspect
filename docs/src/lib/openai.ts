@@ -20,13 +20,22 @@ function stripCodeFences(text: string): string {
 }
 
 function parseIssues(text: string): Finding[] {
+  const cleaned = stripCodeFences(text);
   try {
-    const data = JSON.parse(stripCodeFences(text));
-    return (data.issues || [])
+    const data = JSON.parse(cleaned);
+    const issues = data.issues || [];
+    return issues
       .map((item: any) => {
-        if (typeof item === "string") return { issue: item };
+        if (typeof item === "string") {
+          return { issue: item };
+        }
         if (typeof item === "object" && item.issue) {
-          return { issue: item.issue, evidence: item.evidence, severity: item.severity, file: item.file };
+          return {
+            issue: item.issue,
+            evidence: item.evidence || undefined,
+            severity: item.severity || undefined,
+            file: item.file || undefined,
+          };
         }
         return null;
       })
@@ -36,27 +45,49 @@ function parseIssues(text: string): Finding[] {
   }
 }
 
-async function callOpenAI(apiKey: string, model: string, system: string, prompt: string, temperature: number): Promise<string> {
+async function callOpenAI(
+  apiKey: string,
+  model: string,
+  system: string,
+  prompt: string,
+  temperature: number
+): Promise<string> {
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       model,
-      messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: prompt },
+      ],
       temperature,
     }),
   });
-  if (!resp.ok) throw new Error(`OpenAI error ${resp.status}: ${await resp.text()}`);
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`OpenAI API error ${resp.status}: ${text}`);
+  }
+
   const data = await resp.json();
   return data.choices?.[0]?.message?.content || "";
 }
 
 /** deep_v2: two-temperature merge + diff-aware validation. */
-export async function reviewDeepV2(apiKey: string, model: string, prTitle: string, diff: string, maxFindings = 15): Promise<Finding[]> {
+export async function reviewDeepV2(
+  apiKey: string,
+  model: string,
+  prTitle: string,
+  diff: string,
+  maxFindings: number = 15
+): Promise<Finding[]> {
   const truncated = truncateDiff(diff, 80000);
   const prompt = PROMPT_DEEP.replace("{pr_title}", prTitle).replace("{diff}", truncated);
 
-  // Two passes in parallel
   const [pass0, pass1] = await Promise.allSettled([
     callOpenAI(apiKey, model, SYSTEM_REVIEW, prompt, 0),
     callOpenAI(apiKey, model, SYSTEM_REVIEW, prompt, 0.3),
@@ -77,21 +108,24 @@ export async function reviewDeepV2(apiKey: string, model: string, prTitle: strin
     }
   }
 
+  if (allFindings.length === 0) return [];
   if (allFindings.length <= 2) return allFindings;
 
-  // Validation pass
-  const candidatesText = allFindings.map((f, i) =>
-    `${i + 1}. ${f.issue}${f.evidence ? `\n   Evidence: ${f.evidence}` : ""}`
-  ).join("\n");
+  const candidatesText = allFindings
+    .map(
+      (f, i) =>
+        `${i + 1}. ${f.issue}${f.evidence ? `\n   Evidence: ${f.evidence}` : ""}`
+    )
+    .join("\n");
 
-  const validatePrompt = PROMPT_VALIDATE
-    .replace("{pr_title}", prTitle)
+  const validatePrompt = PROMPT_VALIDATE.replace("{pr_title}", prTitle)
     .replace("{diff}", truncated)
     .replace("{candidates}", candidatesText);
 
   try {
-    const text = await callOpenAI(apiKey, model, SYSTEM_VALIDATE, validatePrompt, 0);
-    return parseIssues(text).slice(0, maxFindings);
+    const validateText = await callOpenAI(apiKey, model, SYSTEM_VALIDATE, validatePrompt, 0);
+    const validated = parseIssues(validateText);
+    return validated.slice(0, maxFindings);
   } catch {
     return allFindings.slice(0, maxFindings);
   }

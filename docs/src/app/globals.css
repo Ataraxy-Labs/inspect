@@ -1,3 +1,10 @@
+@import "tailwindcss";
+
+/* ================================================
+   Original style.css from the static docs site.
+   Preserved verbatim for page parity.
+   ================================================ */
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
@@ -33,7 +40,7 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
 
 /* Nav */
-nav {
+nav.site-nav {
   padding: 20px 0;
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -44,9 +51,9 @@ nav {
   background: var(--bg);
   z-index: 50;
 }
-nav .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: var(--accent); }
-nav .links { display: flex; gap: 20px; font-size: 13px; color: var(--dim); }
-nav .links a.active { color: var(--accent); text-decoration-color: var(--accent); }
+nav.site-nav .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: var(--accent); }
+nav.site-nav .links { display: flex; gap: 20px; font-size: 13px; color: var(--dim); }
+nav.site-nav .links a.active { color: var(--accent); text-decoration-color: var(--accent); }
 
 /* Install box */
 .install-box:hover { border-color: #444 !important; }
@@ -234,6 +241,26 @@ td.mid { color: var(--yellow); }
 }
 .risk-swatch { width: 10px; height: 10px; border-radius: 2px; }
 
+/* Changelog */
+.changelog-entry { padding: 20px 0; border-bottom: 1px solid #181818; }
+.changelog-entry:last-child { border-bottom: none; }
+.changelog-sha {
+  font-size: 12px; color: var(--cyan); background: var(--surface);
+  padding: 2px 8px; border-radius: 4px; margin-right: 8px;
+}
+.changelog-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-right: 6px;
+  background: #1a1a1a; color: var(--fg);
+}
+.changelog-title { font-size: 14px; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+.changelog-body { font-size: 12px; color: var(--dim); line-height: 1.7; }
+.changelog-stats { font-size: 11px; color: var(--dim2); margin-top: 8px; }
+.changelog-mistake {
+  margin-top: 10px; padding: 10px 14px; border-left: 2px solid #555;
+  background: #141414; font-size: 12px; color: var(--dim); line-height: 1.6;
+}
+.changelog-mistake strong { color: var(--accent); font-weight: 600; }
+
 /* Footer */
 footer {
   padding: 40px 0; border-top: 1px solid var(--border);
@@ -243,5 +270,5 @@ footer {
 @media (max-width: 640px) {
   .phase-cards { grid-template-columns: 1fr; }
   .stat-cards { grid-template-columns: 1fr; }
-  nav .links { gap: 12px; font-size: 12px; }
+  nav.site-nav .links { gap: 12px; font-size: 12px; }
 }

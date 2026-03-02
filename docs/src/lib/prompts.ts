@@ -58,6 +58,7 @@ Return ONLY the issues that are verified real bugs with evidence in the diff.
 Respond with ONLY a JSON object:
 {{"issues": [{{"issue": "description", "evidence": "the specific code", "severity": "high", "file": "path/to/file"}}]}}`;
 
+/** Smart diff truncation that deprioritizes tests, docs, configs. */
 export function truncateDiff(diff: string, maxChars: number = 80000): string {
   if (diff.length <= maxChars) return diff;
 
@@ -67,22 +68,34 @@ export function truncateDiff(diff: string, maxChars: number = 80000): string {
   const scored: [number, string][] = [];
   for (const part of parts) {
     if (!part.trim()) continue;
-    const adds = (part.match(/\\n\\+/g) || []).length - (part.match(/\\n\\+\\+\\+/g) || []).length;
-    const dels = (part.match(/\\n-/g) || []).length - (part.match(/\\n---/g) || []).length;
-    let score = adds + dels + Math.min(adds, dels) * 2;
-    const firstLine = (part.split("\\n")[0] || "").toLowerCase();
-    if (["test", "spec", "mock", "__test__", "fixture"].some((kw) => firstLine.includes(kw))) score *= 0.3;
-    if ([".md", ".adoc", ".txt", ".rst", "changelog", "readme"].some((kw) => firstLine.includes(kw))) score *= 0.2;
-    if ([".snap", ".lock", "package-lock", "yarn.lock"].some((kw) => firstLine.includes(kw))) score *= 0.1;
-    if ([".json", ".yaml", ".yml", ".toml", ".xml"].some((kw) => firstLine.includes(kw))) score *= 0.5;
+
+    const adds = (part.match(/\n\+/g) || []).length - (part.match(/\n\+\+\+/g) || []).length;
+    const dels = (part.match(/\n-/g) || []).length - (part.match(/\n---/g) || []).length;
+    const modBonus = Math.min(adds, dels) * 2;
+    let score = adds + dels + modBonus;
+
+    const firstLine = (part.split("\n")[0] || "").toLowerCase();
+
+    if (["test", "spec", "mock", "__test__", "fixture"].some((kw) => firstLine.includes(kw)))
+      score *= 0.3;
+    if ([".md", ".adoc", ".txt", ".rst", "changelog", "readme"].some((kw) => firstLine.includes(kw)))
+      score *= 0.2;
+    if ([".snap", ".lock", "package-lock", "yarn.lock"].some((kw) => firstLine.includes(kw)))
+      score *= 0.1;
+    if ([".json", ".yaml", ".yml", ".toml", ".xml"].some((kw) => firstLine.includes(kw)))
+      score *= 0.5;
+
     scored.push([score, part]);
   }
+
   scored.sort((a, b) => b[0] - a[0]);
+
   let result = "";
   for (const [, part] of scored) {
     const candidate = "diff --git " + part;
     if (result.length + candidate.length > maxChars) break;
     result += candidate;
   }
+
   return result || diff.slice(0, maxChars);
 }

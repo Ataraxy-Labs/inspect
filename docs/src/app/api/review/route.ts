@@ -1,30 +1,45 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetchPrMeta, fetchPrDiff, isNoiseFile } from "./_lib/github";
-import { reviewDeepV2 } from "./_lib/openai";
+import { NextRequest, NextResponse } from "next/server";
+import { fetchPr, fetchPrDiff, isNoiseFile } from "@/lib/github";
+import { reviewDeepV2 } from "@/lib/openai";
+import { validateApiKey } from "@/lib/validate-key";
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "POST only" });
-  }
+export const maxDuration = 60;
+
+export async function POST(req: NextRequest) {
+  const keyResult = await validateApiKey(req);
+  if (!keyResult.valid) return keyResult.response;
 
   const openaiKey = process.env.OPENAI_API_KEY;
   const githubToken = process.env.GITHUB_TOKEN;
   const model = process.env.OPENAI_MODEL || "gpt-4o";
 
   if (!openaiKey || !githubToken) {
-    return res.status(500).json({ error: "Server missing OPENAI_API_KEY or GITHUB_TOKEN" });
+    return NextResponse.json(
+      { error: "Server missing OPENAI_API_KEY or GITHUB_TOKEN" },
+      { status: 500 }
+    );
   }
 
-  const { repo, pr_number } = req.body || {};
+  let body: { repo?: string; pr_number?: number };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { repo, pr_number } = body;
   if (!repo || !pr_number) {
-    return res.status(400).json({ error: 'Required: "repo" (owner/repo), "pr_number" (integer)' });
+    return NextResponse.json(
+      { error: 'Required fields: "repo" (owner/repo), "pr_number" (integer)' },
+      { status: 400 }
+    );
   }
 
   const start = Date.now();
 
   try {
     const [pr, diff] = await Promise.all([
-      fetchPrMeta(githubToken, repo, pr_number),
+      fetchPr(githubToken, repo, pr_number),
       fetchPrDiff(githubToken, repo, pr_number),
     ]);
 
@@ -36,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const reviewMs = Date.now() - reviewStart;
     const totalMs = Date.now() - start;
 
-    return res.json({
+    return NextResponse.json({
       pr: {
         number: pr.number,
         title: pr.title,
@@ -58,6 +73,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (e: any) {
-    return res.status(500).json({ error: e.message || "Review failed" });
+    return NextResponse.json(
+      { error: e.message || "Review failed" },
+      { status: 500 }
+    );
   }
 }
