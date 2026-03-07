@@ -14,6 +14,7 @@ use inspect_core::github::GitHubClient;
 use inspect_core::noise::is_noise_file;
 use inspect_core::risk::suggest_verdict;
 
+use crate::auth::ApiKey;
 use crate::openai;
 use crate::prompts;
 use crate::state::*;
@@ -34,6 +35,7 @@ pub struct TriageRequest {
 // POST /v1/review
 pub async fn create_review(
     State(state): State<Arc<AppState>>,
+    _api_key: ApiKey,
     Json(req): Json<ReviewRequest>,
 ) -> impl IntoResponse {
     let id = Uuid::new_v4().to_string();
@@ -72,6 +74,7 @@ pub async fn create_review(
 // GET /v1/review/:id
 pub async fn get_review(
     State(state): State<Arc<AppState>>,
+    _api_key: ApiKey,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let jobs = state.jobs.read().await;
@@ -87,6 +90,7 @@ pub async fn get_review(
 // POST /v1/triage
 pub async fn create_triage(
     State(_state): State<Arc<AppState>>,
+    _api_key: ApiKey,
     Json(req): Json<TriageRequest>,
 ) -> impl IntoResponse {
     let start = Instant::now();

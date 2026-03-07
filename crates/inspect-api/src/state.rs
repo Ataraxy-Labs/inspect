@@ -15,6 +15,8 @@ pub struct AppState {
     pub github_token: String,
     pub http: reqwest::Client,
     pub jobs: Arc<RwLock<HashMap<String, ReviewJob>>>,
+    pub supabase_url: String,
+    pub supabase_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

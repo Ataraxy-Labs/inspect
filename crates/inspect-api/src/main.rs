@@ -1,3 +1,4 @@
+mod auth;
 mod openai;
 mod prompts;
 mod routes;
@@ -31,6 +32,9 @@ async fn main() {
         .unwrap_or(3000);
     let openai_model =
         std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+    let supabase_url = std::env::var("SUPABASE_URL").expect("SUPABASE_URL required");
+    let supabase_key =
+        std::env::var("SUPABASE_SERVICE_ROLE_KEY").expect("SUPABASE_SERVICE_ROLE_KEY required");
 
     let state = Arc::new(AppState {
         port,
@@ -39,6 +43,8 @@ async fn main() {
         github_token,
         http: reqwest::Client::new(),
         jobs: Arc::new(RwLock::new(HashMap::new())),
+        supabase_url,
+        supabase_key,
     });
 
     let app = Router::new()
