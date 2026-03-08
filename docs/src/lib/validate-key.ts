@@ -4,7 +4,7 @@ import { hashApiKey } from "./keys";
 
 export async function validateApiKey(
   req: Request
-): Promise<{ valid: true; keyId: string } | { valid: false; response: NextResponse }> {
+): Promise<{ valid: true; keyId: string; userId: string } | { valid: false; response: NextResponse }> {
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return {
@@ -22,7 +22,7 @@ export async function validateApiKey(
 
   const { data, error } = await supabase
     .from("api_keys")
-    .select("id, revoked_at, request_count")
+    .select("id, user_id, revoked_at, request_count")
     .eq("key_hash", keyHash)
     .single();
 
@@ -50,5 +50,5 @@ export async function validateApiKey(
     .eq("id", data.id)
     .then(() => {});
 
-  return { valid: true, keyId: data.id };
+  return { valid: true, keyId: data.id, userId: data.user_id };
 }

@@ -40,6 +40,18 @@ export default function DashboardLayout({
             </Link>
             <div style={{ display: "flex", gap: 24, fontSize: 13 }}>
               <Link
+                href="/dashboard"
+                style={{ color: "var(--dim)", textDecoration: "none" }}
+              >
+                Overview
+              </Link>
+              <Link
+                href="/dashboard/reviews"
+                style={{ color: "var(--dim)", textDecoration: "none" }}
+              >
+                Reviews
+              </Link>
+              <Link
                 href="/dashboard/keys"
                 style={{ color: "var(--dim)", textDecoration: "none" }}
               >

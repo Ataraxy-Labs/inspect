@@ -18,6 +18,7 @@ export default function KeysPage() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState(false);
 
   const fetchKeys = () => {
     fetch("/api/keys")
@@ -264,6 +265,79 @@ export default function KeysPage() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {/* Quick start */}
+      {keys.length > 0 && (
+        <div style={{ marginTop: 48 }}>
+          <h2
+            style={{
+              fontSize: 18,
+              fontWeight: 600,
+              color: "var(--accent)",
+              marginBottom: 16,
+              letterSpacing: "-0.5px",
+            }}
+          >
+            Quick start
+          </h2>
+          <div
+            style={{
+              background: "#0d0d0d",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                background: "var(--surface2)",
+                padding: "10px 16px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#333", display: "inline-block" }} />
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#333", display: "inline-block" }} />
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#333", display: "inline-block" }} />
+                <span style={{ fontSize: 12, color: "var(--dim)", marginLeft: 8 }}>~/project</span>
+              </div>
+              <button
+                onClick={() => {
+                  const cmd = `curl -X POST https://inspect.ataraxy-labs.com/api/triage \\\n  -H "Authorization: Bearer ${keys[0].prefix}..." \\\n  -H "Content-Type: application/json" \\\n  -d '{"repo":"owner/repo","pr_number":123}'`;
+                  navigator.clipboard.writeText(cmd);
+                  setCopiedCmd(true);
+                  setTimeout(() => setCopiedCmd(false), 2000);
+                }}
+                style={{
+                  padding: "4px 12px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  background: "transparent",
+                  color: copiedCmd ? "var(--green)" : "var(--dim)",
+                  fontSize: 11,
+                  fontFamily: "var(--mono)",
+                  cursor: "pointer",
+                }}
+              >
+                {copiedCmd ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <div style={{ padding: "20px 24px", fontSize: 13, lineHeight: 1.7 }}>
+              <span style={{ color: "var(--dim)" }}>$ </span>
+              <span style={{ color: "var(--accent)" }}>curl</span>
+              {" -X POST https://inspect.ataraxy-labs.com/api/triage \\\n"}
+              {"  -H \"Authorization: Bearer "}
+              <span style={{ color: "var(--cyan)" }}>{keys[0].prefix}...</span>
+              {"\" \\\n"}
+              {"  -H \"Content-Type: application/json\" \\\n"}
+              {"  -d '{\"repo\":\"owner/repo\",\"pr_number\":123}'"}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
