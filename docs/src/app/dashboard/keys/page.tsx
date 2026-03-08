@@ -314,11 +314,11 @@ export default function KeysPage() {
                 }}
                 style={{
                   padding: "4px 12px",
-                  border: "1px solid var(--border)",
+                  border: "1px solid #444",
                   borderRadius: 4,
-                  background: "transparent",
-                  color: copiedCmd ? "var(--green)" : "var(--dim)",
-                  fontSize: 11,
+                  background: "var(--surface)",
+                  color: copiedCmd ? "var(--green)" : "var(--fg)",
+                  fontSize: 12,
                   fontFamily: "var(--mono)",
                   cursor: "pointer",
                 }}
