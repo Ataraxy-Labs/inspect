@@ -1,564 +1,290 @@
-import React from "react";
+import Nav from "@/components/nav";
 
-export default function Home() {
+export const metadata = { title: "Docs | inspect" };
+
+export default function DocsPage() {
   return (
-    <div className="min-h-screen">
-      {/* Hero */}
-      <section className="px-6 pt-20 pb-16 max-w-5xl mx-auto">
-        <p className="text-sm tracking-widest text-gray-500 uppercase mb-4" style={{ fontFamily: "var(--font-heading)" }}>
-          by <a href="https://ataraxy-labs.com" className="hover:text-gray-300 transition-colors">Ataraxy Labs</a>
-        </p>
-        <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight" style={{ fontFamily: "var(--font-heading)" }}>
-          inspect
+    <div className="container">
+      <Nav active="docs" />
+
+      <div style={{ padding: "48px 0 12px" }}>
+        <h1
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            color: "var(--accent)",
+            letterSpacing: "-1px",
+            marginBottom: 12,
+          }}
+        >
+          Documentation
         </h1>
-        <p className="text-xl md:text-2xl text-gray-300 mb-4 max-w-3xl leading-relaxed">
-          Entity-level code review for Git. Risk scoring, blast radius, change classification, and commit untangling.
+        <p
+          style={{
+            fontSize: 14,
+            color: "var(--dim)",
+            lineHeight: 1.7,
+            maxWidth: 600,
+          }}
+        >
+          Commands, change classification, risk scoring, and supported
+          languages.
         </p>
-        <p className="text-lg text-gray-500 mb-10 max-w-2xl">
-          Git diff says N files changed. inspect says which functions matter, scores them by risk, and groups them by logical dependency.
-        </p>
-
-        <div className="flex flex-wrap gap-4 mb-16">
-          <a
-            href="https://github.com/Ataraxy-Labs/inspect"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-6 py-3 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors text-sm"
-            style={{ fontFamily: "var(--font-heading)" }}
-          >
-            GitHub
-          </a>
-          <a
-            href="/llms.txt"
-            className="px-6 py-3 border border-white/20 rounded-lg hover:border-white/40 transition-colors text-sm"
-            style={{ fontFamily: "var(--font-heading)" }}
-          >
-            llms.txt
-          </a>
-        </div>
-
-        {/* Install */}
-        <div className="mb-16">
-          <pre><code>cargo install --git https://github.com/Ataraxy-Labs/inspect inspect-cli</code></pre>
-        </div>
-      </section>
-
-      {/* The Problem */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            The Problem
-          </h2>
-          <p className="text-gray-400 mb-6 max-w-3xl leading-relaxed">
-            AI is generating more code than ever. Human reviewers are drowning. DORA 2025 found that AI adoption led to +154% PR size, +91% review time, and +9% more bugs shipped.
-          </p>
-          <p className="text-gray-400 max-w-3xl leading-relaxed">
-            Every code review tool today works at the file or line level. CodeRabbit, Qodo, SonarQube. They show you every line that changed and leave you to figure out what matters. inspect works at the entity level: functions, structs, traits, classes. It scores each change by risk and groups them by logical dependency.
-          </p>
-        </div>
-      </section>
-
-      {/* Benchmark */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            Benchmark: 9,182 Entities Across 102 Commits
-          </h2>
-          <p className="text-gray-400 mb-8 max-w-3xl">
-            Real results from running <code>inspect bench</code> against three Rust codebases.
-          </p>
-          <div className="grid md:grid-cols-3 gap-8 mb-8">
-            <div className="border border-white/10 rounded-lg p-8">
-              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>Max blast radius</p>
-              <p className="text-5xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>595</p>
-              <p className="text-gray-400 mt-2">entities affected by one change in agenthub</p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-8">
-              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>Cross-file impact</p>
-              <p className="text-5xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>70.7%</p>
-              <p className="text-gray-400 mt-2">of changes in agenthub ripple across files</p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-8">
-              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>Tangled commits</p>
-              <p className="text-5xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>96.8%</p>
-              <p className="text-gray-400 mt-2">of sem commits contain multiple logical changes</p>
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-6 mb-8">
-            {[
-              { repo: "sem", commits: 38, entities: "5,216", blast: "0", hc: "0%", cross: "0%" },
-              { repo: "weave", commits: 45, entities: "2,854", blast: "176", hc: "6.4%", cross: "10.9%" },
-              { repo: "agenthub", commits: 19, entities: "1,112", blast: "595", hc: "36.0%", cross: "70.7%" },
-            ].map((r) => (
-              <div key={r.repo} className="border border-white/10 rounded-lg p-6">
-                <h4 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>{r.repo} ({r.commits} commits)</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Entities reviewed</span><span className="text-white">{r.entities}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Max blast radius</span><span className="text-white">{r.blast}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">High/Critical</span><span className="text-white">{r.hc}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Cross-file impact</span><span className="text-white">{r.cross}</span></div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <p className="text-gray-500 text-sm">
-            Blast radius 595 means one entity change could affect 595 other entities transitively. A line-level diff won&apos;t tell you this. 70.7% cross-file impact means reviewing one file in isolation misses the picture.
-          </p>
-        </div>
-      </section>
-
-      {/* Code Review Benchmark */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            inspect + LLM vs Greptile vs CodeRabbit
-          </h2>
-          <p className="text-gray-400 mb-8 max-w-3xl">
-            Same dataset, same judge, same methodology. 141 planted bugs across 52 PRs in 5 production repos (Sentry, Cal.com, Grafana, Keycloak, Discourse). Heuristic keyword-matching judge applied identically to all tools.
-          </p>
-
-          <div className="grid md:grid-cols-4 gap-6 mb-10">
-            <div className="border border-white/10 rounded-lg p-6">
-              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>HC Recall</p>
-              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>100%</p>
-              <p className="text-gray-400 mt-2 text-sm">inspect catches every high/critical bug</p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>Recall</p>
-              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>95.0%</p>
-              <p className="text-gray-400 mt-2 text-sm">134 of 141 bugs found</p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>Precision</p>
-              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>33.3%</p>
-              <p className="text-gray-400 mt-2 text-sm">1 in 3 findings is a real bug</p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <p className="text-sm text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: "var(--font-heading)" }}>F1 Score</p>
-              <p className="text-4xl font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>49.4%</p>
-              <p className="text-gray-400 mt-2 text-sm">best balance of recall and precision</p>
-            </div>
-          </div>
-
-          {/* Comparison table */}
-          <div className="overflow-x-auto mb-8">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="text-left py-3 pr-4 text-gray-500 font-normal">Metric</th>
-                  <th className="text-right py-3 px-4 text-white font-semibold" style={{ fontFamily: "var(--font-heading)" }}>inspect + LLM</th>
-                  <th className="text-right py-3 px-4 text-gray-400 font-normal">Greptile API</th>
-                  <th className="text-right py-3 px-4 text-gray-400 font-normal">CodeRabbit CLI</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { metric: "Recall", inspect: "95.0%", greptile: "91.5%", coderabbit: "56.0%" },
-                  { metric: "Precision", inspect: "33.3%", greptile: "21.9%", coderabbit: "48.2%" },
-                  { metric: "F1 Score", inspect: "49.4%", greptile: "35.3%", coderabbit: "51.8%" },
-                  { metric: "HC Recall", inspect: "100%", greptile: "94.1%", coderabbit: "60.8%" },
-                  { metric: "Findings", inspect: "402", greptile: "590", coderabbit: "164" },
-                ].map((row) => (
-                  <tr key={row.metric} className="border-b border-white/5">
-                    <td className="py-3 pr-4 text-gray-400">{row.metric}</td>
-                    <td className="py-3 px-4 text-right text-white font-semibold">{row.inspect}</td>
-                    <td className="py-3 px-4 text-right text-gray-400">{row.greptile}</td>
-                    <td className="py-3 px-4 text-right text-gray-400">{row.coderabbit}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <p className="text-gray-500 text-sm">
-            inspect uses entity-level triage to cut 100+ changed entities to the 60 riskiest, then sends each to GPT-5.2 for review. This costs a fraction of reviewing everything, with higher recall than tools that scan the full diff. Dataset: <a href="https://huggingface.co/datasets/rs545837/inspect-greptile-bench" className="text-white underline hover:text-gray-300" target="_blank" rel="noopener noreferrer">HuggingFace</a>.
-          </p>
-        </div>
-      </section>
-
-      {/* Speed */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            Speed
-          </h2>
-          <p className="text-gray-400 mb-8 max-w-3xl">
-            Entity extraction, dependency graph construction, change classification, risk scoring, and commit untangling. All in milliseconds. No API calls, everything local.
-          </p>
-          <div className="grid md:grid-cols-2 gap-8 mb-8">
-            <div>
-              <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>Single commit review</h3>
-              <div className="space-y-3">
-                {[
-                  { repo: "sem", desc: "25 files", time: "24ms" },
-                  { repo: "weave", desc: "80 files", time: "30ms" },
-                  { repo: "agenthub", desc: "130 files, 9K LOC", time: "49ms" },
-                ].map((r) => (
-                  <div key={r.repo} className="flex justify-between items-center border-b border-white/5 pb-2">
-                    <span className="text-gray-400 text-sm">{r.repo} <span className="text-gray-600">({r.desc})</span></span>
-                    <span className="text-white font-semibold" style={{ fontFamily: "var(--font-heading)" }}>{r.time}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>Full repo history</h3>
-              <div className="space-y-3">
-                {[
-                  { repo: "sem", desc: "38 commits, 5K entities", time: "0.87s" },
-                  { repo: "agenthub", desc: "19 commits, 1K entities", time: "0.56s" },
-                  { repo: "weave", desc: "45 commits, 3K entities", time: "1.81s" },
-                ].map((r) => (
-                  <div key={r.repo} className="flex justify-between items-center border-b border-white/5 pb-2">
-                    <span className="text-gray-400 text-sm">{r.repo} <span className="text-gray-600">({r.desc})</span></span>
-                    <span className="text-white font-semibold" style={{ fontFamily: "var(--font-heading)" }}>{r.time}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <p className="text-gray-500 text-sm">
-            Powered by <a href="https://ataraxy-labs.com/sem" className="text-white underline hover:text-gray-300">sem-core</a> v0.3.0 with xxHash64 structural hashing, parallel tree-sitter parsing via rayon, cached git tree resolution, and LTO-optimized release builds.
-          </p>
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-12" style={{ fontFamily: "var(--font-heading)" }}>
-            How It Works
-          </h2>
-          <div className="grid md:grid-cols-2 gap-10">
-            <div>
-              <h3 className="text-lg font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>1. Extract</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Parse source files with tree-sitter. Extract functions, structs, classes, traits as entities. Build a full-repo dependency graph from all tracked source files.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>2. Classify</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Compare before/after content line by line. Categorize each change as text (comments), syntax (signatures), functional (logic), or a combination using the ConGra taxonomy.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>3. Score</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Compute risk from classification weight, blast radius, dependent count, public API exposure, and change type. Cosmetic-only changes get a 70% discount.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>4. Group</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Untangle commits into logical groups using Union-Find on dependency edges between changed entities. Each group can be reviewed independently.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      </div>
 
       {/* Commands */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-12" style={{ fontFamily: "var(--font-heading)" }}>
-            Commands
-          </h2>
+      <section>
+        <h2>Commands</h2>
+        <p className="section-desc">
+          All commands support{" "}
+          <code
+            style={{
+              color: "var(--cyan)",
+              background: "var(--surface)",
+              padding: "2px 6px",
+              borderRadius: 3,
+              fontSize: 12,
+            }}
+          >
+            --format json
+          </code>{" "}
+          and{" "}
+          <code
+            style={{
+              color: "var(--cyan)",
+              background: "var(--surface)",
+              padding: "2px 6px",
+              borderRadius: 3,
+              fontSize: 12,
+            }}
+          >
+            --format markdown
+          </code>{" "}
+          for machine-readable output.
+        </p>
 
-          <div className="mb-12">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>inspect diff</h3>
-            <p className="text-gray-400 mb-4">Review entity-level changes for any commit or range.</p>
-            <pre><code>{`$ inspect diff HEAD~1
-
-inspect 12 entities changed
-  1 critical, 4 high, 6 medium, 1 low
-
-groups 3 logical groups:
-  [0] src/merge/ (5 entities)
-  [1] src/driver/ (4 entities)
-  [2] validate (3 entities)
-
-entities (by risk):
-
-  ~ CRITICAL function merge_entities (src/merge/core.rs)
-    classification: functional  score: 0.82  blast: 171  deps: 3/12
-    public API
-    >>> 12 dependents may be affected
-
-  - HIGH function old_validate (src/validate.rs)
-    classification: functional  score: 0.65  blast: 8  deps: 0/3
-    public API
-
-  + MEDIUM function parse_config (src/config.rs)
-    classification: functional  score: 0.45  blast: 0  deps: 2/0
-
-  ~ LOW function format_output (src/display.rs)
-    classification: text  score: 0.05  blast: 0  deps: 0/0
-    cosmetic only (no structural change)`}</code></pre>
+        <div className="cmd-doc">
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">inspect diff &lt;ref&gt;</span>
+            <span className="cmd-doc-desc">Review entity-level changes for a commit or range</span>
           </div>
-
-          <div className="mb-12">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>inspect pr</h3>
-            <p className="text-gray-400 mb-4">Review all changes in a GitHub pull request. Uses <code>gh</code> CLI to resolve base/head refs.</p>
-            <pre><code>{`$ inspect pr 42
-$ inspect pr 42 --min-risk high --format json`}</code></pre>
-          </div>
-
-          <div className="mb-12">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>inspect file</h3>
-            <p className="text-gray-400 mb-4">Review uncommitted changes in a specific file.</p>
-            <pre><code>{`$ inspect file src/main.rs --context`}</code></pre>
-          </div>
-
-          <div className="mb-12">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>inspect bench</h3>
-            <p className="text-gray-400 mb-4">Benchmark entity-level review across a repo&apos;s commit history. Outputs JSON with per-commit details and aggregate metrics.</p>
-            <pre><code>{`$ inspect bench --repo ~/weave --limit 100 > bench.json`}</code></pre>
+          <div className="cmd-doc-flags">
+            <div className="flag"><code>--context</code> <span>Show dependency details for each entity</span></div>
+            <div className="flag"><code>--min-risk &lt;level&gt;</code> <span>Filter by minimum risk (low, medium, high, critical)</span></div>
+            <div className="flag"><code>--format &lt;fmt&gt;</code> <span>terminal (default), json, or markdown</span></div>
           </div>
         </div>
-      </section>
 
-      {/* HTTP API */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-12" style={{ fontFamily: "var(--font-heading)" }}>
-            HTTP API
-          </h2>
-          <p className="text-gray-400 mb-8 max-w-3xl">
-            REST API for integrating inspect into CI pipelines, bots, and custom workflows. Submit a PR, get back findings. Uses the deep_v2 strategy: two-temperature LLM review with entity-level triage and diff-aware validation.
-          </p>
-
-          <div className="mb-10">
-            <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>Quick Start</h3>
-            <pre><code>{`# Install and run
-cargo install --git https://github.com/Ataraxy-Labs/inspect inspect-api
-
-OPENAI_API_KEY=sk-... GITHUB_TOKEN=ghp_... inspect-api`}</code></pre>
+        <div className="cmd-doc">
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">inspect pr &lt;number&gt;</span>
+            <span className="cmd-doc-desc">Review all changes in a GitHub pull request</span>
           </div>
+        </div>
 
-          <div className="mb-12">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>POST /v1/review</h3>
-            <p className="text-gray-400 mb-4">Submit a PR for async review. Returns a job ID to poll.</p>
-            <pre><code>{`curl -X POST localhost:3000/v1/review \\
-  -H "Content-Type: application/json" \\
-  -d '{"repo":"facebook/react","pr_number":28000}'
-
-# Response (202 Accepted)
-{"id":"abc-123","status":"pending"}`}</code></pre>
+        <div className="cmd-doc">
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">inspect file &lt;path&gt;</span>
+            <span className="cmd-doc-desc">Review uncommitted changes in a specific file</span>
           </div>
+        </div>
 
-          <div className="mb-12">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>GET /v1/review/:id</h3>
-            <p className="text-gray-400 mb-4">Poll job status. Returns findings when complete.</p>
-            <pre><code>{`curl localhost:3000/v1/review/abc-123
-
-# Response (200 OK, when complete)
-{
-  "id": "abc-123",
-  "status": "complete",
-  "result": {
-    "findings": [
-      {"issue": "Missing null check in parseConfig", "evidence": "config.get()..."}
-    ],
-    "triage": {
-      "verdict": "RequiresReview",
-      "total_entities": 42,
-      "stats": {"critical": 1, "high": 3, "medium": 8, "low": 30}
-    },
-    "timing": {"triage_ms": 2400, "review_ms": 18000, "total_ms": 20400}
-  }
-}`}</code></pre>
-          </div>
-
-          <div className="mb-12">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>POST /v1/triage</h3>
-            <p className="text-gray-400 mb-4">Synchronous entity triage only. No LLM call. Returns in 2-5s.</p>
-            <pre><code>{`curl -X POST localhost:3000/v1/triage \\
-  -H "Content-Type: application/json" \\
-  -d '{"repo":"facebook/react","pr_number":28000}'
-
-# Response (200 OK)
-{
-  "verdict": "RequiresCarefulReview",
-  "total_entities": 42,
-  "entities": [...],
-  "stats": {"critical": 1, "high": 3, "medium": 8, "low": 30},
-  "timing_ms": 2400
-}`}</code></pre>
-          </div>
-
-          <div className="mb-8">
-            <h3 className="text-xl font-semibold mb-4" style={{ fontFamily: "var(--font-heading)" }}>GET /health</h3>
-            <pre><code>{`curl localhost:3000/health
-# {"status":"ok"}`}</code></pre>
-          </div>
-
-          <div className="border border-white/10 rounded-lg p-6 mt-10">
-            <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Environment Variables</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-gray-400"><code>OPENAI_API_KEY</code></span><span className="text-gray-500">Required. OpenAI API key for LLM review.</span></div>
-              <div className="flex justify-between"><span className="text-gray-400"><code>GITHUB_TOKEN</code></span><span className="text-gray-500">Required. GitHub token for PR access.</span></div>
-              <div className="flex justify-between"><span className="text-gray-400"><code>PORT</code></span><span className="text-gray-500">Server port. Default: 3000.</span></div>
-              <div className="flex justify-between"><span className="text-gray-400"><code>OPENAI_MODEL</code></span><span className="text-gray-500">LLM model. Default: gpt-4o.</span></div>
-            </div>
+        <div className="cmd-doc">
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">inspect bench --repo &lt;path&gt;</span>
+            <span className="cmd-doc-desc">Benchmark entity-level review across a repo&apos;s commit history</span>
           </div>
         </div>
       </section>
 
       {/* Change Classification */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            Change Classification
-          </h2>
-          <p className="text-gray-400 mb-8 max-w-3xl">
-            Based on <a href="https://arxiv.org/abs/2409.14121" className="text-white underline hover:text-gray-300" target="_blank" rel="noopener noreferrer">ConGra (arXiv:2409.14121)</a>. Every change is classified along three dimensions: text, syntax, and functional. This produces 7 possible categories.
-          </p>
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Text</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Only comments, whitespace, or documentation changed. Safe to skip in most reviews.
-              </p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Syntax</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Signatures, types, or declarations changed without logic changes. Type annotation updates, visibility modifiers.
-              </p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Functional</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Logic or behavior changed. Conditionals, return values, control flow. Requires careful review.
-              </p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Text+Syntax</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Comments and signatures both changed. Doc comment updated alongside a type change.
-              </p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Text+Functional</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Comments and logic both changed. Bug fix with an updated explanation.
-              </p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)" }}>Syntax+Functional</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Signatures and logic both changed. New parameter added and used in the function body.
-              </p>
-            </div>
-          </div>
-        </div>
+      <section>
+        <h2>Change classification</h2>
+        <p className="section-desc">
+          Based on{" "}
+          <a href="https://arxiv.org/abs/2409.14121" style={{ color: "var(--cyan)" }}>
+            ConGra (arXiv:2409.14121)
+          </a>. Every change is classified along three dimensions: text, syntax, and functional.
+        </p>
+        <table>
+          <thead>
+            <tr><th>Classification</th><th>What changed</th><th>Review needed?</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span style={{ color: "var(--green)" }}>Text</span></td><td>Comments, whitespace, docs only</td><td className="lose">usually skip</td></tr>
+            <tr><td><span style={{ color: "var(--cyan)" }}>Syntax</span></td><td>Signatures, types, declarations (no logic)</td><td className="mid">check API surface</td></tr>
+            <tr><td><span style={{ color: "var(--red)" }}>Functional</span></td><td>Logic or behavior</td><td className="high">careful review</td></tr>
+            <tr><td><span style={{ color: "var(--fg)" }}>Mixed</span></td><td>Combinations of the above</td><td className="high">careful review</td></tr>
+          </tbody>
+        </table>
       </section>
 
       {/* Risk Scoring */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            Risk Scoring
-          </h2>
-          <p className="text-gray-400 mb-6 max-w-3xl">
-            Each entity gets a risk score from 0.0 to 1.0 combining five signals. Cosmetic-only changes (structural hash unchanged) get a 70% discount.
-          </p>
-          <div className="space-y-6">
-            <div className="border-l-2 border-white/20 pl-6">
-              <h3 className="text-lg font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>Classification Weight</h3>
-              <p className="text-gray-400 text-sm">Text changes score 0.05, functional changes score 0.4, mixed changes up to 0.55.</p>
-            </div>
-            <div className="border-l-2 border-white/20 pl-6">
-              <h3 className="text-lg font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>Blast Radius</h3>
-              <p className="text-gray-400 text-sm">Transitive impact normalized by total entity count. An entity affecting 100 of 500 entities scores 0.06.</p>
-            </div>
-            <div className="border-l-2 border-white/20 pl-6">
-              <h3 className="text-lg font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>Dependent Count</h3>
-              <p className="text-gray-400 text-sm">Logarithmic scale. More dependents means more risk, but diminishing returns after ~10.</p>
-            </div>
-            <div className="border-l-2 border-white/20 pl-6">
-              <h3 className="text-lg font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>Public API</h3>
-              <p className="text-gray-400 text-sm">Exported functions, pub methods, capitalized Go/Java names get a 0.15 boost.</p>
-            </div>
-            <div className="border-l-2 border-white/20 pl-6">
-              <h3 className="text-lg font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>Change Type</h3>
-              <p className="text-gray-400 text-sm">Deletions score highest (0.2), modifications and renames (0.1), additions lowest (0.05).</p>
+      <section>
+        <h2>Risk scoring</h2>
+        <p className="section-desc">
+          Graph-centric. Dependents and blast radius are the primary discriminators. Cosmetic-only changes get an 80% discount.
+        </p>
+
+        <div className="flow">
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--red)", color: "var(--red)" }}>1</div>
+            <div className="flow-content">
+              <div className="title">Dependent count (primary)</div>
+              <div className="desc">How many other entities call or reference this one. Logarithmic scale.</div>
             </div>
           </div>
-          <p className="text-gray-500 text-sm mt-8">
-            Risk levels: <strong className="text-white">Critical</strong> (&gt;= 0.7), <strong className="text-white">High</strong> (&gt;= 0.5), <strong className="text-white">Medium</strong> (&gt;= 0.3), <strong className="text-white">Low</strong> (&lt; 0.3).
-          </p>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--orange)", color: "var(--orange)" }}>2</div>
+            <div className="flow-content">
+              <div className="title">Blast radius (primary)</div>
+              <div className="desc">Transitive impact via BFS through the dependency graph. Normalized by repo size.</div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--green)", color: "var(--green)" }}>3</div>
+            <div className="flow-content">
+              <div className="title">Classification</div>
+              <div className="desc">Functional changes score higher than syntax, which score higher than text-only.</div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--cyan)", color: "var(--cyan)" }}>4</div>
+            <div className="flow-content">
+              <div className="title">Public API</div>
+              <div className="desc">Exported functions, pub methods, capitalized Go/Java names.</div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--purple)", color: "var(--purple)" }}>5</div>
+            <div className="flow-content">
+              <div className="title">Change type</div>
+              <div className="desc">Deletions and modifications score higher than additions. Cosmetic changes get 80% discount.</div>
+            </div>
+          </div>
         </div>
+
+        <p style={{ fontSize: 13, color: "var(--dim)", marginTop: 24, lineHeight: 1.7 }}>
+          Risk levels:{" "}
+          <span style={{ color: "var(--red)", fontWeight: 600 }}>Critical</span> (&gt;= 0.7) &middot;{" "}
+          <span style={{ color: "var(--orange)", fontWeight: 600 }}>High</span> (&gt;= 0.5) &middot;{" "}
+          <span style={{ color: "var(--yellow)", fontWeight: 600 }}>Medium</span> (&gt;= 0.3) &middot;{" "}
+          <span style={{ color: "var(--dim)" }}>Low</span> (&lt; 0.3)
+        </p>
       </section>
 
       {/* Languages */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            13 Languages
-          </h2>
-          <div className="flex flex-wrap gap-3">
-            {["Rust", "TypeScript", "TSX", "JavaScript", "Python", "Go", "Java", "C", "C++", "Ruby", "C#", "PHP", "Fortran"].map((lang) => (
-              <span key={lang} className="px-4 py-2 border border-white/15 rounded-lg text-sm text-gray-300">
-                {lang}
-              </span>
-            ))}
+      <section>
+        <h2>13 languages</h2>
+        <p className="section-desc">
+          Entity extraction powered by{" "}
+          <a href="https://github.com/Ataraxy-Labs/sem" style={{ color: "var(--green)" }}>sem-core</a>{" "}
+          and tree-sitter. All parsers compiled into the binary.
+        </p>
+        <table>
+          <thead><tr><th>Language</th><th>Extensions</th><th>Entities</th></tr></thead>
+          <tbody>
+            <tr><td>Rust</td><td>.rs</td><td>functions, structs, enums, impls, traits</td></tr>
+            <tr><td>TypeScript</td><td>.ts .tsx</td><td>functions, classes, interfaces, types, enums</td></tr>
+            <tr><td>JavaScript</td><td>.js .jsx .mjs .cjs</td><td>functions, classes, variables</td></tr>
+            <tr><td>Python</td><td>.py</td><td>functions, classes, decorators</td></tr>
+            <tr><td>Go</td><td>.go</td><td>functions, methods, types</td></tr>
+            <tr><td>Java</td><td>.java</td><td>classes, methods, interfaces, enums, fields</td></tr>
+            <tr><td>C</td><td>.c .h</td><td>functions, structs, enums, unions, typedefs</td></tr>
+            <tr><td>C++</td><td>.cpp .cc .cxx .hpp</td><td>functions, classes, structs, enums, namespaces</td></tr>
+            <tr><td>Ruby</td><td>.rb</td><td>methods, classes, modules</td></tr>
+            <tr><td>C#</td><td>.cs</td><td>methods, classes, interfaces, enums, structs</td></tr>
+            <tr><td>PHP</td><td>.php</td><td>functions, classes, methods, interfaces, traits, enums</td></tr>
+            <tr><td>Fortran</td><td>.f90 .f95 .f03 .f08</td><td>functions, subroutines, modules, programs</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      {/* HTTP API */}
+      <section>
+        <h2>HTTP API</h2>
+        <p className="section-desc">
+          REST API for integrating inspect into CI pipelines, bots, and custom workflows. Authenticate with a Bearer token from your dashboard.
+        </p>
+
+        <div className="cmd-doc">
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">POST /api/triage</span>
+            <span className="cmd-doc-desc">File-level triage. No LLM call. Returns in 1-3s.</span>
           </div>
-          <p className="text-gray-500 text-sm mt-6">
-            Each language has a tree-sitter parser compiled into the binary. No runtime dependencies. Powered by <a href="https://ataraxy-labs.com/sem" className="text-white underline hover:text-gray-300">sem-core</a>.
-          </p>
-        </div>
-      </section>
-
-      {/* Architecture */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-            Architecture
-          </h2>
-          <pre><code>{`inspect/crates/
-  inspect-core/   Analysis engine: classify, risk score, untangle
-  inspect-cli/    CLI: diff, pr, file, bench commands
-  inspect-mcp/    MCP server: 6 tools for AI agents
-  inspect-api/    HTTP API: REST endpoints, async jobs, LLM review`}</code></pre>
-          <p className="text-gray-400 mt-4 text-sm">
-            Built in Rust. Entity extraction powered by <a href="https://github.com/Ataraxy-Labs/sem" className="text-white underline hover:text-gray-300">sem-core</a> with tree-sitter. Full-repo entity graph built from all tracked source files via <code>git ls-files</code>.
-          </p>
-        </div>
-      </section>
-
-      {/* Companion tools */}
-      <section className="px-6 py-16 border-t border-white/10">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold mb-4" style={{ fontFamily: "var(--font-heading)" }}>
-            Works with sem and Weave
-          </h2>
-          <p className="text-gray-400 mb-6 max-w-3xl leading-relaxed">
-            inspect, <a href="https://ataraxy-labs.com/sem" className="text-white underline hover:text-gray-300">sem</a>, and <a href="https://ataraxy-labs.com/weave" className="text-white underline hover:text-gray-300">Weave</a> are complementary tools built on the same foundation: sem-core&apos;s entity extraction and structural hashing.
-          </p>
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>sem</h3>
-              <p className="text-gray-400 text-sm">Understand code history. What changed, who changed it, what depends on it, what might break.</p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>Weave</h3>
-              <p className="text-gray-400 text-sm">Merge without false conflicts. 31/31 clean merges on concurrent edit scenarios vs Git&apos;s 15/31.</p>
-            </div>
-            <div className="border border-white/10 rounded-lg p-6">
-              <h3 className="text-base font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>inspect</h3>
-              <p className="text-gray-400 text-sm">Review what matters. Risk scoring, blast radius, change classification, commit untangling.</p>
+          <div className="terminal" style={{ marginTop: 12 }}>
+            <div className="terminal-body" style={{ padding: "16px 20px" }}>
+              <pre dangerouslySetInnerHTML={{ __html: `<span class="cmd">$ curl -X POST https://inspect.ataraxy-labs.com/api/triage \\</span>
+<span class="cmd">    -H "Authorization: Bearer insp_..." \\</span>
+<span class="cmd">    -H "Content-Type: application/json" \\</span>
+<span class="cmd">    -d '{"repo":"owner/repo","pr_number":123}'</span>` }} />
             </div>
           </div>
         </div>
+
+        <div className="cmd-doc" style={{ marginTop: 24 }}>
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">POST /api/review</span>
+            <span className="cmd-doc-desc">Full review with LLM. Returns findings.</span>
+          </div>
+          <div className="terminal" style={{ marginTop: 12 }}>
+            <div className="terminal-body" style={{ padding: "16px 20px" }}>
+              <pre dangerouslySetInnerHTML={{ __html: `<span class="cmd">$ curl -X POST https://inspect.ataraxy-labs.com/api/review \\</span>
+<span class="cmd">    -H "Authorization: Bearer insp_..." \\</span>
+<span class="cmd">    -H "Content-Type: application/json" \\</span>
+<span class="cmd">    -d '{"repo":"owner/repo","pr_number":123}'</span>` }} />
+            </div>
+          </div>
+        </div>
+
+        <div className="cmd-doc" style={{ marginTop: 24 }}>
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">GET /api/health</span>
+            <span className="cmd-doc-desc">Health check (no auth required)</span>
+          </div>
+        </div>
       </section>
 
-      {/* Footer */}
-      <footer className="px-6 py-12 border-t border-white/10 text-center text-gray-600 text-sm">
-        <p>MIT License. Built by <a href="https://ataraxy-labs.com" className="text-gray-400 hover:text-white transition-colors">Ataraxy Labs</a>.</p>
+      {/* MCP Server */}
+      <section>
+        <h2>MCP server</h2>
+        <p className="section-desc">
+          inspect ships an MCP server so any coding agent (Claude Code, Cursor, etc.) can use entity-level review as a tool. Build with{" "}
+          <code style={{ color: "var(--cyan)", background: "var(--surface)", padding: "2px 6px", borderRadius: 3, fontSize: 12 }}>cargo build -p inspect-mcp</code>.
+        </p>
+        <table>
+          <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code style={{ color: "var(--cyan)" }}>inspect_triage</code></td><td>Primary entry point. Full analysis sorted by risk with verdict.</td></tr>
+            <tr><td><code style={{ color: "var(--cyan)" }}>inspect_entity</code></td><td>Drill into one entity: before/after content, dependents, dependencies.</td></tr>
+            <tr><td><code style={{ color: "var(--cyan)" }}>inspect_group</code></td><td>Get all entities in a logical change group.</td></tr>
+            <tr><td><code style={{ color: "var(--cyan)" }}>inspect_file</code></td><td>Scope review to a single file.</td></tr>
+            <tr><td><code style={{ color: "var(--cyan)" }}>inspect_stats</code></td><td>Lightweight summary: stats, verdict, timing.</td></tr>
+            <tr><td><code style={{ color: "var(--cyan)" }}>inspect_risk_map</code></td><td>File-level risk heatmap with per-file aggregate scores.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      {/* Installation */}
+      <section>
+        <h2>Installation</h2>
+        <p className="section-desc">Rust toolchain required. Single binary, no runtime dependencies.</p>
+        <div className="cmd-doc">
+          <div className="cmd-doc-header"><span className="cmd-doc-name">From source</span></div>
+          <div className="terminal" style={{ marginTop: 12 }}>
+            <div className="terminal-body" style={{ padding: "16px 20px" }}>
+              <pre dangerouslySetInnerHTML={{ __html: `<span class="cmd">$ cargo install --git https://github.com/Ataraxy-Labs/inspect inspect-cli</span>` }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <p>Built by <a href="https://ataraxy-labs.com">Ataraxy Labs</a></p>
       </footer>
     </div>
   );

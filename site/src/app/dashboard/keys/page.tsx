@@ -69,34 +69,73 @@ export default function KeysPage() {
   return (
     <div>
       <h1
-        className="text-3xl font-bold mb-8"
-        style={{ fontFamily: "var(--font-heading)" }}
+        style={{
+          fontSize: 28,
+          fontWeight: 700,
+          color: "var(--accent)",
+          letterSpacing: "-1px",
+          marginBottom: 12,
+        }}
       >
         API Keys
       </h1>
+      <p
+        style={{
+          fontSize: 14,
+          color: "var(--dim)",
+          lineHeight: 1.7,
+          marginBottom: 32,
+        }}
+      >
+        Create and manage API keys for the inspect HTTP API.
+      </p>
 
       {/* Create key */}
-      <div className="border border-white/10 rounded-lg p-6 mb-8">
-        <h2
-          className="text-sm text-gray-500 uppercase tracking-wider mb-4"
-          style={{ fontFamily: "var(--font-heading)" }}
-        >
-          Create API Key
-        </h2>
-        <div className="flex gap-3">
+      <div
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <div style={{ fontSize: 13, color: "var(--dim)", marginBottom: 12 }}>
+          Create new key
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
           <input
             type="text"
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="Key name (e.g. CI pipeline)"
-            className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-white/30"
             onKeyDown={(e) => e.key === "Enter" && createKey()}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: "var(--fg)",
+              fontSize: 13,
+              fontFamily: "var(--mono)",
+              outline: "none",
+            }}
           />
           <button
             onClick={createKey}
             disabled={creating || !newKeyName.trim()}
-            className="px-6 py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors text-sm disabled:opacity-50"
-            style={{ fontFamily: "var(--font-heading)" }}
+            style={{
+              padding: "8px 20px",
+              background: "var(--accent)",
+              color: "var(--bg)",
+              border: "none",
+              borderRadius: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "var(--mono)",
+              cursor: creating || !newKeyName.trim() ? "default" : "pointer",
+              opacity: creating || !newKeyName.trim() ? 0.4 : 1,
+            }}
           >
             {creating ? "Creating..." : "Create"}
           </button>
@@ -105,24 +144,59 @@ export default function KeysPage() {
 
       {/* Show created key */}
       {createdKey && (
-        <div className="border border-yellow-500/30 bg-yellow-500/5 rounded-lg p-6 mb-8">
-          <p className="text-yellow-400 text-sm mb-3">
+        <div
+          style={{
+            border: "1px solid var(--yellow)",
+            borderRadius: 8,
+            padding: 20,
+            marginBottom: 24,
+            background: "#facc1508",
+          }}
+        >
+          <p style={{ fontSize: 13, color: "var(--yellow)", marginBottom: 10 }}>
             Copy this key now. It won&apos;t be shown again.
           </p>
-          <div className="flex items-center gap-3">
-            <code className="flex-1 px-4 py-2 bg-black/50 rounded text-sm text-white font-mono break-all">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <code
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                background: "var(--surface)",
+                borderRadius: 6,
+                fontSize: 12,
+                color: "var(--fg)",
+                wordBreak: "break-all",
+              }}
+            >
               {createdKey}
             </code>
             <button
               onClick={copyKey}
-              className="px-4 py-2 border border-white/20 rounded-lg hover:border-white/40 transition-colors text-sm shrink-0"
+              style={{
+                padding: "8px 16px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "transparent",
+                color: copied ? "var(--green)" : "var(--fg)",
+                fontSize: 13,
+                fontFamily: "var(--mono)",
+                cursor: "pointer",
+              }}
             >
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
           <button
             onClick={() => setCreatedKey(null)}
-            className="text-gray-500 text-sm mt-3 hover:text-gray-300"
+            style={{
+              marginTop: 10,
+              background: "none",
+              border: "none",
+              color: "var(--dim)",
+              fontSize: 12,
+              fontFamily: "var(--mono)",
+              cursor: "pointer",
+            }}
           >
             Dismiss
           </button>
@@ -131,53 +205,60 @@ export default function KeysPage() {
 
       {/* Keys table */}
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p style={{ fontSize: 13, color: "var(--dim)" }}>Loading...</p>
       ) : keys.length === 0 ? (
-        <p className="text-gray-500">No API keys yet. Create one above.</p>
+        <p style={{ fontSize: 13, color: "var(--dim)" }}>
+          No API keys yet. Create one above.
+        </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10">
-                <th className="text-left py-3 pr-4 text-gray-500 font-normal">Name</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-normal">Key</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-normal">Created</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-normal">Last Used</th>
-                <th className="text-right py-3 px-4 text-gray-500 font-normal">Requests</th>
-                <th className="text-right py-3 pl-4 text-gray-500 font-normal"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {keys.map((k) => (
-                <tr key={k.id} className="border-b border-white/5">
-                  <td className="py-3 pr-4 text-white">{k.name}</td>
-                  <td className="py-3 px-4 text-gray-400 font-mono text-xs">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Key</th>
+              <th>Created</th>
+              <th>Last used</th>
+              <th style={{ textAlign: "right" }}>Requests</th>
+              <th style={{ textAlign: "right" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k.id}>
+                <td style={{ color: "var(--accent)" }}>{k.name}</td>
+                <td>
+                  <code style={{ fontSize: 12, color: "var(--cyan)" }}>
                     {k.prefix}...
-                  </td>
-                  <td className="py-3 px-4 text-gray-400">
-                    {new Date(k.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="py-3 px-4 text-gray-400">
-                    {k.last_used_at
-                      ? new Date(k.last_used_at).toLocaleDateString()
-                      : "Never"}
-                  </td>
-                  <td className="py-3 px-4 text-right text-white">
-                    {k.request_count}
-                  </td>
-                  <td className="py-3 pl-4 text-right">
-                    <button
-                      onClick={() => revokeKey(k.id)}
-                      className="text-red-400 hover:text-red-300 text-sm"
-                    >
-                      Revoke
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </code>
+                </td>
+                <td>{new Date(k.created_at).toLocaleDateString()}</td>
+                <td>
+                  {k.last_used_at
+                    ? new Date(k.last_used_at).toLocaleDateString()
+                    : "Never"}
+                </td>
+                <td style={{ textAlign: "right", color: "var(--accent)" }}>
+                  {k.request_count}
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <button
+                    onClick={() => revokeKey(k.id)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--red)",
+                      fontSize: 13,
+                      fontFamily: "var(--mono)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

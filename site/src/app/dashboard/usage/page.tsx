@@ -29,55 +29,76 @@ export default function UsagePage() {
   return (
     <div>
       <h1
-        className="text-3xl font-bold mb-8"
-        style={{ fontFamily: "var(--font-heading)" }}
+        style={{
+          fontSize: 28,
+          fontWeight: 700,
+          color: "var(--accent)",
+          letterSpacing: "-1px",
+          marginBottom: 12,
+        }}
       >
         Usage
       </h1>
+      <p
+        style={{
+          fontSize: 14,
+          color: "var(--dim)",
+          lineHeight: 1.7,
+          marginBottom: 32,
+        }}
+      >
+        Request counts per API key.
+      </p>
 
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p style={{ fontSize: 13, color: "var(--dim)" }}>Loading...</p>
       ) : keys.length === 0 ? (
-        <p className="text-gray-500">No API keys yet.</p>
+        <p style={{ fontSize: 13, color: "var(--dim)" }}>No API keys yet.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10">
-                <th className="text-left py-3 pr-4 text-gray-500 font-normal">Name</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-normal">Key</th>
-                <th className="text-right py-3 px-4 text-gray-500 font-normal">Requests</th>
-                <th className="text-left py-3 pl-4 text-gray-500 font-normal">Last Used</th>
-              </tr>
-            </thead>
-            <tbody>
-              {keys.map((k) => (
-                <tr key={k.id} className="border-b border-white/5">
-                  <td className="py-3 pr-4 text-white">{k.name}</td>
-                  <td className="py-3 px-4 text-gray-400 font-mono text-xs">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Key</th>
+              <th style={{ textAlign: "right" }}>Requests</th>
+              <th>Last used</th>
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k.id}>
+                <td style={{ color: "var(--accent)" }}>{k.name}</td>
+                <td>
+                  <code style={{ fontSize: 12, color: "var(--cyan)" }}>
                     {k.prefix}...
-                  </td>
-                  <td className="py-3 px-4 text-right text-white">
-                    {k.request_count}
-                  </td>
-                  <td className="py-3 pl-4 text-gray-400">
-                    {k.last_used_at
-                      ? new Date(k.last_used_at).toLocaleDateString()
-                      : "Never"}
-                  </td>
-                </tr>
-              ))}
-              <tr className="border-t border-white/10">
-                <td className="py-3 pr-4 text-white font-semibold">Total</td>
-                <td className="py-3 px-4"></td>
-                <td className="py-3 px-4 text-right text-white font-semibold">
-                  {totalRequests}
+                  </code>
                 </td>
-                <td className="py-3 pl-4"></td>
+                <td style={{ textAlign: "right", color: "var(--accent)" }}>
+                  {k.request_count}
+                </td>
+                <td>
+                  {k.last_used_at
+                    ? new Date(k.last_used_at).toLocaleDateString()
+                    : "Never"}
+                </td>
               </tr>
-            </tbody>
-          </table>
-        </div>
+            ))}
+            <tr style={{ borderTop: "1px solid var(--border)" }}>
+              <td style={{ color: "var(--accent)", fontWeight: 600 }}>Total</td>
+              <td></td>
+              <td
+                style={{
+                  textAlign: "right",
+                  color: "var(--green)",
+                  fontWeight: 600,
+                }}
+              >
+                {totalRequests}
+              </td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
       )}
     </div>
   );

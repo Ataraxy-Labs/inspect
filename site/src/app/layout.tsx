@@ -3,8 +3,9 @@ import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "inspect - Entity-Level Code Review",
-  description: "Entity-level code review for Git. Risk scoring, blast radius analysis, change classification, and commit untangling across 12 languages.",
+  title: "inspect | Entity-Level Code Review for Git",
+  description:
+    "Entity-level code review for Git. Graph-based risk scoring identifies which functions need careful review.",
 };
 
 export default function RootLayout({
@@ -16,16 +17,9 @@ export default function RootLayout({
 
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-      </head>
       <body>
         {clerkKey ? (
-          <ClerkProvider publishableKey={clerkKey}>
-            {children}
-          </ClerkProvider>
+          <ClerkProvider publishableKey={clerkKey}>{children}</ClerkProvider>
         ) : (
           children
         )}
