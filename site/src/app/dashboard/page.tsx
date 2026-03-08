@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState(false);
 
   const fetchKeys = () => {
     fetch("/api/keys")
@@ -304,11 +305,33 @@ export default function DashboardPage() {
               Quick start
             </h2>
             <div className="terminal">
-              <div className="terminal-bar">
-                <div className="terminal-dot" />
-                <div className="terminal-dot" />
-                <div className="terminal-dot" />
-                <div className="terminal-title">~/project</div>
+              <div className="terminal-bar" style={{ justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="terminal-dot" />
+                  <div className="terminal-dot" />
+                  <div className="terminal-dot" />
+                  <div className="terminal-title">~/project</div>
+                </div>
+                <button
+                  onClick={() => {
+                    const cmd = `curl -X POST https://inspect.ataraxy-labs.com/api/triage \\\n  -H "Authorization: Bearer insp_..." \\\n  -H "Content-Type: application/json" \\\n  -d '{"repo":"owner/repo","pr_number":123}'`;
+                    navigator.clipboard.writeText(cmd);
+                    setCopiedCmd(true);
+                    setTimeout(() => setCopiedCmd(false), 2000);
+                  }}
+                  style={{
+                    padding: "4px 12px",
+                    border: "1px solid #444",
+                    borderRadius: 4,
+                    background: "var(--surface)",
+                    color: copiedCmd ? "var(--green)" : "var(--fg)",
+                    fontSize: 12,
+                    fontFamily: "var(--mono)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {copiedCmd ? "Copied" : "Copy"}
+                </button>
               </div>
               <div className="terminal-body">
                 <pre
