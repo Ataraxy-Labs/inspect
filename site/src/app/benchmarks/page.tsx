@@ -382,6 +382,202 @@ export default function BenchmarksPage() {
         </p>
       </section>
 
+      {/* Martian Code Review Bench */}
+      <section>
+        <h2>Martian Code Review Bench (137 bugs, 50 PRs, 5 repos)</h2>
+        <p className="section-desc">
+          <a
+            href="https://codereview.withmartian.com/"
+            style={{ color: "var(--cyan)" }}
+          >
+            Martian Code Review Bench
+          </a>{" "}
+          is the industry-standard offline benchmark for AI code review tools.
+          50 curated PRs with 137 human-verified golden comments across Sentry,
+          Cal.com, Grafana, Keycloak, and Discourse. GPT-5.2 judge.
+        </p>
+
+        <div className="stat-cards">
+          <div className="stat-card" style={{ borderColor: "var(--green)" }}>
+            <div className="stat-value" style={{ color: "var(--green)" }}>45.3%</div>
+            <div className="stat-label">recall (inspect + GPT-5.2)</div>
+            <div className="stat-detail">62 of 137 bugs found</div>
+          </div>
+          <div className="stat-card" style={{ borderColor: "var(--cyan)" }}>
+            <div className="stat-value" style={{ color: "var(--cyan)" }}>42.8%</div>
+            <div className="stat-label">precision</div>
+            <div className="stat-detail">+5pp over Augment (37.3%)</div>
+          </div>
+          <div className="stat-card" style={{ borderColor: "var(--purple)" }}>
+            <div className="stat-value" style={{ color: "var(--purple)" }}>44.0%</div>
+            <div className="stat-label">F1 score</div>
+            <div className="stat-detail">#2 overall, behind Augment (45.8%)</div>
+          </div>
+        </div>
+
+        <div className="comparison-table">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Tool</th>
+                <th>F1</th>
+                <th>Precision</th>
+                <th>Recall</th>
+                <th>Findings</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>Augment</td>
+                <td className="win">45.8%</td>
+                <td>37.3%</td>
+                <td className="win">59.1%</td>
+                <td>215</td>
+              </tr>
+              <tr style={{ background: "rgba(0, 255, 136, 0.05)" }}>
+                <td>2</td>
+                <td><strong style={{ color: "var(--accent)" }}>inspect + GPT-5.2</strong></td>
+                <td>44.0%</td>
+                <td>42.8%</td>
+                <td>45.3%</td>
+                <td>145</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td>Cursor Bugbot</td>
+                <td>40.5%</td>
+                <td>38.3%</td>
+                <td>43.1%</td>
+                <td>152</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td>Propel</td>
+                <td>38.1%</td>
+                <td>38.9%</td>
+                <td>37.2%</td>
+                <td>131</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td>Greptile</td>
+                <td>35.1%</td>
+                <td>33.8%</td>
+                <td>36.5%</td>
+                <td>149</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td>Claude Code</td>
+                <td>33.6%</td>
+                <td>30.5%</td>
+                <td>37.2%</td>
+                <td>167</td>
+              </tr>
+              <tr>
+                <td>7</td>
+                <td>GitHub Copilot</td>
+                <td>32.6%</td>
+                <td>23.5%</td>
+                <td>53.3%</td>
+                <td>311</td>
+              </tr>
+              <tr>
+                <td>8</td>
+                <td>Baz</td>
+                <td>30.3%</td>
+                <td>34.6%</td>
+                <td>27.0%</td>
+                <td>107</td>
+              </tr>
+              <tr>
+                <td>9</td>
+                <td>Qodo</td>
+                <td>30.1%</td>
+                <td>23.4%</td>
+                <td>42.3%</td>
+                <td>250</td>
+              </tr>
+              <tr>
+                <td>10</td>
+                <td>Gemini</td>
+                <td>28.1%</td>
+                <td>24.6%</td>
+                <td>32.8%</td>
+                <td>184</td>
+              </tr>
+              <tr>
+                <td>11</td>
+                <td>CodeRabbit</td>
+                <td>28.1%</td>
+                <td>21.2%</td>
+                <td>41.6%</td>
+                <td>268</td>
+              </tr>
+              <tr>
+                <td>12</td>
+                <td>Kilo+Grok</td>
+                <td>25.0%</td>
+                <td className="win">48.9%</td>
+                <td>16.8%</td>
+                <td>46</td>
+              </tr>
+              <tr>
+                <td>13</td>
+                <td>Graphite</td>
+                <td>15.5%</td>
+                <td className="win">66.7%</td>
+                <td>8.8%</td>
+                <td>19</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bench-group" style={{ marginTop: 24 }}>
+          <h3>F1 Score (GPT-5.2 judge)</h3>
+          {[
+            { name: "Augment", value: "45.8%", valueColor: undefined, width: 45.8, cls: "other-bar" },
+            { name: <><strong style={{ color: "var(--accent)" }}>inspect + GPT-5.2</strong></>, value: "44.0%", valueColor: "var(--green)", width: 44.0, cls: "inspect-bar" },
+            { name: "Cursor Bugbot", value: "40.5%", valueColor: undefined, width: 40.5, cls: "other-bar" },
+            { name: "Propel", value: "38.1%", valueColor: undefined, width: 38.1, cls: "dim-bar" },
+            { name: "Greptile", value: "35.1%", valueColor: undefined, width: 35.1, cls: "dim-bar" },
+            { name: "Claude Code", value: "33.6%", valueColor: undefined, width: 33.6, cls: "dim-bar" },
+            { name: "Copilot", value: "32.6%", valueColor: undefined, width: 32.6, cls: "dim-bar" },
+            { name: "CodeRabbit", value: "28.1%", valueColor: undefined, width: 28.1, cls: "dim-bar" },
+          ].map((row, i) => (
+            <div className="bench-row" key={i}>
+              <div className="bench-label">
+                <span className="name">{row.name}</span>
+                <span className="value" style={row.valueColor ? { color: row.valueColor } : undefined}>
+                  {row.value}
+                </span>
+              </div>
+              <div className="bench-bar-track">
+                <div className={`bench-bar ${row.cls}`} data-width={row.width}>
+                  {row.value}
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="bench-note">
+            137 golden comments, 50 PRs, GPT-5.2 judge. Competitor scores from Martian leaderboard.
+          </div>
+        </div>
+
+        <p style={{ fontSize: 12, color: "var(--dim2)", marginTop: 12, lineHeight: 1.7 }}>
+          inspect + LLM reviews top entities per PR sorted by risk score,
+          with LLM-generated findings capped at 15 per PR by confidence.
+          Competitor scores from the official{" "}
+          <a href="https://codereview.withmartian.com/" style={{ color: "var(--cyan)" }}>
+            Martian leaderboard
+          </a>
+          . All tools evaluated by GPT-5.2 judge on identical golden comments.
+        </p>
+      </section>
+
       {/* How it works */}
       <section>
         <h2>How it works</h2>
