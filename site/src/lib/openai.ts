@@ -1,4 +1,22 @@
-import { SYSTEM_REVIEW, SYSTEM_VALIDATE, PROMPT_DEEP, PROMPT_VALIDATE, truncateDiff } from "./prompts";
+import {
+  SYSTEM_PRECISE,
+  SYSTEM_DATA,
+  SYSTEM_CONCURRENCY,
+  SYSTEM_CONTRACTS,
+  SYSTEM_SECURITY,
+  SYSTEM_TYPOS,
+  SYSTEM_RUNTIME,
+  SYSTEM_VALIDATE,
+  PROMPT_DATA,
+  PROMPT_CONCURRENCY,
+  PROMPT_CONTRACTS,
+  PROMPT_SECURITY,
+  PROMPT_TYPOS,
+  PROMPT_RUNTIME,
+  PROMPT_GENERAL,
+  PROMPT_VALIDATE,
+  truncateDiff,
+} from "./prompts";
 
 export interface Finding {
   issue: string;
@@ -50,22 +68,26 @@ async function callOpenAI(
   model: string,
   system: string,
   prompt: string,
-  temperature: number
+  temperature: number,
+  seed?: number
 ): Promise<string> {
+  const body: any = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: prompt },
+    ],
+    temperature,
+  };
+  if (seed !== undefined) body.seed = seed;
+
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: prompt },
-      ],
-      temperature,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!resp.ok) {
@@ -77,27 +99,88 @@ async function callOpenAI(
   return data.choices?.[0]?.message?.content || "";
 }
 
-/** deep_v2: two-temperature merge + diff-aware validation. */
-export async function reviewDeepV2(
+/** Extract file basenames from a unified diff. */
+function extractDiffFiles(diff: string): Set<string> {
+  const basenames = new Set<string>();
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++ b/") || line.startsWith("--- a/")) {
+      const path = line.slice(6);
+      if (path && path !== "/dev/null") {
+        const base = path.split("/").pop()!.toLowerCase();
+        basenames.add(base);
+      }
+    }
+  }
+  return basenames;
+}
+
+const CODE_EXTS = new Set([
+  ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs", ".rb",
+  ".c", ".cpp", ".cs", ".swift", ".kt", ".scala", ".hbs", ".erb",
+  ".ex", ".exs", ".hcl",
+]);
+
+/** Drop issues that mention code files not present in the diff. */
+function structuralFileFilter(issues: Finding[], diffBasenames: Set<string>): Finding[] {
+  if (diffBasenames.size === 0) return issues;
+
+  return issues.filter((f) => {
+    const text = f.issue.toLowerCase();
+    const words = text.replace(/\//g, " / ").split(/\s+/);
+    for (const word of words) {
+      if ([...CODE_EXTS].some((ext) => word.endsWith(ext))) {
+        const base = word.split("/").pop()!;
+        if (!diffBasenames.has(base)) return false;
+      }
+    }
+    return true;
+  });
+}
+
+function fillPrompt(template: string, prTitle: string, diff: string): string {
+  return template.replace("{pr_title}", prTitle).replace("{diff}", diff);
+}
+
+/** v26: 9 lenses (6 specialized + 1 general + 2 diversity) with structural filter + validation. */
+export async function reviewV26(
   apiKey: string,
   model: string,
   prTitle: string,
-  diff: string,
-  maxFindings: number = 15
+  diff: string
 ): Promise<Finding[]> {
   const truncated = truncateDiff(diff, 80000);
-  const prompt = PROMPT_DEEP.replace("{pr_title}", prTitle).replace("{diff}", truncated);
+  const diffBasenames = extractDiffFiles(diff);
 
-  // Two passes in parallel: T=0 (deterministic) + T=0.3 (diverse)
-  const [pass0, pass1] = await Promise.allSettled([
-    callOpenAI(apiKey, model, SYSTEM_REVIEW, prompt, 0),
-    callOpenAI(apiKey, model, SYSTEM_REVIEW, prompt, 0.3),
+  // Build all prompts
+  const pData = fillPrompt(PROMPT_DATA, prTitle, truncated);
+  const pConcurrency = fillPrompt(PROMPT_CONCURRENCY, prTitle, truncated);
+  const pContracts = fillPrompt(PROMPT_CONTRACTS, prTitle, truncated);
+  const pSecurity = fillPrompt(PROMPT_SECURITY, prTitle, truncated);
+  const pTypos = fillPrompt(PROMPT_TYPOS, prTitle, truncated);
+  const pRuntime = fillPrompt(PROMPT_RUNTIME, prTitle, truncated);
+  const pGeneral = fillPrompt(PROMPT_GENERAL, prTitle, truncated);
+
+  // 9 lenses in parallel
+  const results = await Promise.allSettled([
+    // 6 specialized @ T=0, seed=42
+    callOpenAI(apiKey, model, SYSTEM_DATA, pData, 0, 42),
+    callOpenAI(apiKey, model, SYSTEM_CONCURRENCY, pConcurrency, 0, 42),
+    callOpenAI(apiKey, model, SYSTEM_CONTRACTS, pContracts, 0, 42),
+    callOpenAI(apiKey, model, SYSTEM_SECURITY, pSecurity, 0, 42),
+    callOpenAI(apiKey, model, SYSTEM_TYPOS, pTypos, 0, 42),
+    callOpenAI(apiKey, model, SYSTEM_RUNTIME, pRuntime, 0, 42),
+    // 1 general @ T=0, seed=42
+    callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0, 42),
+    // 2 diversity (general) @ T=0.15, seeds 42 and 123
+    callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0.15, 42),
+    callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0.15, 123),
   ]);
 
+  // Merge + dedup (first-80-char lowercase key)
   const allFindings: Finding[] = [];
   const seen = new Set<string>();
 
-  for (const result of [pass0, pass1]) {
+  for (const result of results) {
     if (result.status === "fulfilled") {
       for (const f of parseIssues(result.value)) {
         const key = f.issue.toLowerCase().slice(0, 80);
@@ -109,11 +192,14 @@ export async function reviewDeepV2(
     }
   }
 
-  if (allFindings.length === 0) return [];
-  if (allFindings.length <= 2) return allFindings;
+  // Structural file filter
+  const filtered = structuralFileFilter(allFindings, diffBasenames);
+
+  if (filtered.length === 0) return [];
+  if (filtered.length <= 2) return filtered;
 
   // Validation pass
-  const candidatesText = allFindings
+  const candidatesText = filtered
     .map(
       (f, i) =>
         `${i + 1}. ${f.issue}${f.evidence ? `\n   Evidence: ${f.evidence}` : ""}`
@@ -125,10 +211,10 @@ export async function reviewDeepV2(
     .replace("{candidates}", candidatesText);
 
   try {
-    const validateText = await callOpenAI(apiKey, model, SYSTEM_VALIDATE, validatePrompt, 0);
+    const validateText = await callOpenAI(apiKey, model, SYSTEM_VALIDATE, validatePrompt, 0, 42);
     const validated = parseIssues(validateText);
-    return validated.slice(0, maxFindings);
+    return validated.slice(0, 7);
   } catch {
-    return allFindings.slice(0, maxFindings);
+    return filtered.slice(0, 5);
   }
 }

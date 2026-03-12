@@ -1,10 +1,126 @@
-export const SYSTEM_REVIEW =
+// System messages for each lens
+export const SYSTEM_PRECISE =
   "You are a precise code reviewer. Only report real bugs you are confident about. Always respond with valid JSON.";
+
+export const SYSTEM_DATA =
+  "You are a data correctness reviewer. Always respond with valid JSON.";
+
+export const SYSTEM_CONCURRENCY =
+  "You are a concurrency/state bug reviewer. Always respond with valid JSON.";
+
+export const SYSTEM_CONTRACTS =
+  "You are an API contracts reviewer. Always respond with valid JSON.";
+
+export const SYSTEM_SECURITY =
+  "You are a security reviewer. Always respond with valid JSON.";
+
+export const SYSTEM_TYPOS =
+  "You are a character-level detail reviewer. Always respond with valid JSON.";
+
+export const SYSTEM_RUNTIME =
+  "You are a runtime failure analyst. Always respond with valid JSON.";
 
 export const SYSTEM_VALIDATE =
   "You are a precise reviewer. Verify each issue against the actual diff. Only keep confirmed bugs. Always respond with valid JSON.";
 
-export const PROMPT_DEEP = `You are a world-class code reviewer. Review this PR and find ONLY real, concrete bugs.
+// Specialized lens prompts
+
+export const PROMPT_DATA = `You are a code reviewer specializing in DATA CORRECTNESS issues.
+
+PR Title: {pr_title}
+
+PR Diff:
+{diff}
+
+Focus ONLY on: wrong translations, wrong constants/mappings/enum values, copy-paste errors, wrong key/field references, case sensitivity in comparisons, incorrect regex.
+Rules: ONLY concrete data issues. Be specific. Max 5 issues.
+
+For each issue, provide a JSON object with "issue" (description), "evidence" (the specific code), "severity" (critical/high/medium/low), and "file" (file path).
+Respond with ONLY: {{"issues": [{{"issue": "desc", "evidence": "code", "severity": "high", "file": "path/to/file"}}]}}`;
+
+export const PROMPT_CONCURRENCY = `You are a code reviewer specializing in CONCURRENCY and STATE bugs.
+
+PR Title: {pr_title}
+
+PR Diff:
+{diff}
+
+Focus ONLY on: race conditions, missing locks/transactions, stale reads, process lifecycle bugs, cache inconsistency, feature flag inconsistency.
+Rules: ONLY issues with evidence in the diff. Be specific. Max 5 issues.
+
+For each issue, provide a JSON object with "issue" (description), "evidence" (the specific code), "severity" (critical/high/medium/low), and "file" (file path).
+Respond with ONLY: {{"issues": [{{"issue": "desc", "evidence": "code", "severity": "high", "file": "path/to/file"}}]}}`;
+
+export const PROMPT_CONTRACTS = `You are a code reviewer specializing in API CONTRACT violations.
+
+PR Title: {pr_title}
+
+PR Diff:
+{diff}
+
+Focus ONLY on: missing abstract method implementations, wrong signatures/types, API breaking changes, wrong parameter order, key mismatches, missing React keys, import errors, method name typos breaking interfaces.
+Rules: ONLY verifiable issues. Be specific. Max 5 issues.
+
+For each issue, provide a JSON object with "issue" (description), "evidence" (the specific code), "severity" (critical/high/medium/low), and "file" (file path).
+Respond with ONLY: {{"issues": [{{"issue": "desc", "evidence": "code", "severity": "high", "file": "path/to/file"}}]}}`;
+
+export const PROMPT_SECURITY = `You are a security-focused code reviewer.
+
+PR Title: {pr_title}
+
+PR Diff:
+{diff}
+
+Focus ONLY on: SSRF, XSS, injection, auth bypass, origin/referrer bypass, case sensitivity bypass in security comparisons, frame options misconfig, hardcoded secrets.
+Rules: ONLY real exploitable vulnerabilities. Be specific. Max 5 issues.
+
+For each issue, provide a JSON object with "issue" (description), "evidence" (the specific code), "severity" (critical/high/medium/low), and "file" (file path).
+Respond with ONLY: {{"issues": [{{"issue": "desc", "evidence": "code", "severity": "high", "file": "path/to/file"}}]}}`;
+
+export const PROMPT_TYPOS = `You are a code reviewer with exceptional attention to character-level detail.
+
+PR Title: {pr_title}
+
+PR Diff:
+{diff}
+
+Focus ONLY on:
+- Method/function/variable name TYPOS causing runtime errors
+- Wrong language in locale/translation files
+- Missing required method suffixes (Rails '?', etc.)
+- Case sensitivity bugs in comparisons
+- Wrong vendor prefixes
+- Property/key name mismatches
+
+Rules: Character-level precision. Only if it causes runtime failure. Max 5 issues.
+
+For each issue, provide a JSON object with "issue" (description), "evidence" (the specific code), "severity" (critical/high/medium/low), and "file" (file path).
+Respond with ONLY: {{"issues": [{{"issue": "desc", "evidence": "code", "severity": "high", "file": "path/to/file"}}]}}`;
+
+export const PROMPT_RUNTIME = `You are a code reviewer focused on RUNTIME FAILURES.
+
+PR Title: {pr_title}
+
+PR Diff:
+{diff}
+
+For each changed function/class, ask: "What would happen if I ran this code?"
+
+Focus ONLY on:
+- Null/nil/undefined dereference
+- Missing abstract method implementations causing TypeError
+- Unreachable code branches
+- Infinite recursion without termination
+- Wrong error messages
+- Panic on nil in Go
+- Missing React keys
+
+Rules: RUNTIME behavior only. Only actual failures. Max 5 issues.
+
+For each issue, provide a JSON object with "issue" (description), "evidence" (the specific code), "severity" (critical/high/medium/low), and "file" (file path).
+Respond with ONLY: {{"issues": [{{"issue": "desc", "evidence": "code", "severity": "high", "file": "path/to/file"}}]}}`;
+
+export const PROMPT_GENERAL = `You are a world-class code reviewer. Review this PR and find ONLY real, concrete bugs.
 
 PR Title: {pr_title}
 

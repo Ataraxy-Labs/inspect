@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchPr, fetchPrDiff, isNoiseFile } from "@/lib/github";
-import { reviewDeepV2 } from "@/lib/openai";
+import { reviewV26 } from "@/lib/openai";
 import { validateApiKey } from "@/lib/validate-key";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const keyResult = await validateApiKey(req);
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 
   const openaiKey = process.env.OPENAI_API_KEY;
   const githubToken = process.env.GITHUB_TOKEN;
-  const model = process.env.OPENAI_MODEL || "gpt-4o";
+  const model = process.env.OPENAI_MODEL || "gpt-5.2";
 
   if (!openaiKey || !githubToken) {
     return NextResponse.json(
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     // Run LLM review
     const reviewStart = Date.now();
-    const findings = await reviewDeepV2(openaiKey, model, pr.title, diff, 15);
+    const findings = await reviewV26(openaiKey, model, pr.title, diff);
     const reviewMs = Date.now() - reviewStart;
 
     const totalMs = Date.now() - start;
