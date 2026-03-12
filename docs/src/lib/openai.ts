@@ -44,6 +44,7 @@ export async function fetchTriage(
   prNumber: number
 ): Promise<string> {
   try {
+    console.log(`[triage] calling ${apiUrl}/v1/triage for ${repo}#${prNumber}`);
     const resp = await fetch(`${apiUrl}/v1/triage`, {
       method: "POST",
       headers: {
@@ -53,7 +54,10 @@ export async function fetchTriage(
       body: JSON.stringify({ repo, pr_number: prNumber }),
     });
 
-    if (!resp.ok) return "";
+    if (!resp.ok) {
+      console.log(`[triage] failed: ${resp.status} ${resp.statusText}`);
+      return "";
+    }
 
     const data = await resp.json();
     const entities: TriageEntity[] = data.entities || [];
@@ -86,7 +90,8 @@ export async function fetchTriage(
       }
     }
     return lines.join("\n");
-  } catch {
+  } catch (e) {
+    console.log(`[triage] error: ${e}`);
     return "";
   }
 }
