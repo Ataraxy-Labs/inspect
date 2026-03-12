@@ -12,8 +12,9 @@ export async function POST(req: NextRequest) {
   const openaiKey = process.env.OPENAI_API_KEY;
   const githubToken = process.env.GITHUB_TOKEN;
   const model = process.env.OPENAI_MODEL || "gpt-5.2";
-  const inspectApiUrl = process.env.INSPECT_API_URL || "";
-  const inspectApiKey = process.env.INSPECT_API_KEY || "";
+  const inspectApiUrl = (process.env.INSPECT_API_URL || "").replace(/"/g, "");
+  const inspectApiKey = (process.env.INSPECT_API_KEY || "").replace(/"/g, "");
+  console.log(`[review] inspect-api: url=${inspectApiUrl ? "set" : "empty"}, key=${inspectApiKey ? "set" : "empty"}`);
 
   if (!openaiKey || !githubToken) {
     return NextResponse.json(
