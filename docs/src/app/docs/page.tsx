@@ -408,11 +408,30 @@ export default function DocsPage() {
         <h2>HTTP API</h2>
         <p className="section-desc">
           REST API for integrating inspect into CI pipelines, bots, and custom
-          workflows. Submit a PR, get back findings. Uses the deep_v2 strategy:
-          two-temperature LLM review with diff-aware validation.
+          workflows. Submit a PR, get back findings. Uses 9 specialized review
+          lenses with entity-level triage and diff-aware validation.
         </p>
 
         <div className="cmd-doc">
+          <div className="cmd-doc-header">
+            <span className="cmd-doc-name">Authentication</span>
+            <span className="cmd-doc-desc">
+              All API endpoints require a Bearer token
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: "var(--dim)", lineHeight: 1.7, marginTop: 8 }}>
+            1. <a href="/sign-up" style={{ color: "var(--cyan)" }}>Create an account</a>{" "}
+            2. Go to{" "}
+            <a href="/dashboard/keys" style={{ color: "var(--cyan)" }}>Dashboard &gt; Keys</a>{" "}
+            3. Create an API key{" "}
+            4. Pass it as{" "}
+            <code style={{ color: "var(--cyan)", background: "var(--surface)", padding: "2px 6px", borderRadius: 3, fontSize: 12 }}>
+              Authorization: Bearer &lt;key&gt;
+            </code>
+          </p>
+        </div>
+
+        <div className="cmd-doc" style={{ marginTop: 24 }}>
           <div className="cmd-doc-header">
             <span className="cmd-doc-name">POST /api/review</span>
             <span className="cmd-doc-desc">
@@ -423,7 +442,8 @@ export default function DocsPage() {
             <div className="terminal-body" style={{ padding: "16px 20px" }}>
               <pre
                 dangerouslySetInnerHTML={{
-                  __html: `<span class="cmd">$ curl -X POST https://inspect-review.vercel.app/api/review \\</span>
+                  __html: `<span class="cmd">$ curl -X POST https://inspect.ataraxy-labs.com/api/review \\</span>
+<span class="cmd">    -H "Authorization: Bearer insp_your_key_here" \\</span>
 <span class="cmd">    -H "Content-Type: application/json" \\</span>
 <span class="cmd">    -d '{"repo":"owner/repo","pr_number":123}'</span>
 
@@ -438,7 +458,7 @@ export default function DocsPage() {
       <span class="c">"file"</span>: <span class="g">"src/middleware/cors.ts"</span>
     }
   ],
-  <span class="c">"summary"</span>: { <span class="c">"total_findings"</span>: 3, <span class="c">"files_analyzed"</span>: 12 },
+  <span class="c">"usage"</span>: { <span class="c">"input_tokens"</span>: 85000, <span class="c">"output_tokens"</span>: 2400 },
   <span class="c">"timing"</span>: { <span class="c">"triage_ms"</span>: 1200, <span class="c">"review_ms"</span>: 18000, <span class="c">"total_ms"</span>: 19200 }
 }`,
                 }}
@@ -451,23 +471,30 @@ export default function DocsPage() {
           <div className="cmd-doc-header">
             <span className="cmd-doc-name">POST /api/triage</span>
             <span className="cmd-doc-desc">
-              File-level triage only. No LLM call. Returns in 1-3s.
+              Entity-level triage only. No LLM call. Returns in 1-3s.
             </span>
           </div>
           <div className="terminal" style={{ marginTop: 12 }}>
             <div className="terminal-body" style={{ padding: "16px 20px" }}>
               <pre
                 dangerouslySetInnerHTML={{
-                  __html: `<span class="cmd">$ curl -X POST https://inspect-review.vercel.app/api/triage \\</span>
+                  __html: `<span class="cmd">$ curl -X POST https://inspect.ataraxy-labs.com/api/triage \\</span>
+<span class="cmd">    -H "Authorization: Bearer insp_your_key_here" \\</span>
 <span class="cmd">    -H "Content-Type: application/json" \\</span>
 <span class="cmd">    -d '{"repo":"owner/repo","pr_number":123}'</span>
 
 <span class="d">// Response</span>
 {
   <span class="c">"pr"</span>: { <span class="c">"number"</span>: 123, <span class="c">"title"</span>: <span class="g">"Fix auth bypass"</span> },
-  <span class="c">"files_analyzed"</span>: 8,
-  <span class="c">"files"</span>: [
-    { <span class="c">"file"</span>: <span class="g">"src/auth.ts"</span>, <span class="c">"additions"</span>: 45, <span class="c">"deletions"</span>: 12 }
+  <span class="c">"entities"</span>: [
+    {
+      <span class="c">"name"</span>: <span class="g">"validate_cors"</span>,
+      <span class="c">"type"</span>: <span class="g">"function"</span>,
+      <span class="c">"file"</span>: <span class="g">"src/middleware/cors.ts"</span>,
+      <span class="c">"risk"</span>: <span class="r">"critical"</span>,
+      <span class="c">"score"</span>: <span class="g">"0.85"</span>,
+      <span class="c">"change_type"</span>: <span class="g">"modified"</span>
+    }
   ],
   <span class="c">"timing_ms"</span>: 1400
 }`,
@@ -480,18 +507,27 @@ export default function DocsPage() {
         <div className="cmd-doc" style={{ marginTop: 24 }}>
           <div className="cmd-doc-header">
             <span className="cmd-doc-name">GET /api/health</span>
-            <span className="cmd-doc-desc">Health check</span>
+            <span className="cmd-doc-desc">Health check (no auth required)</span>
           </div>
           <div className="terminal" style={{ marginTop: 12 }}>
             <div className="terminal-body" style={{ padding: "16px 20px" }}>
               <pre
                 dangerouslySetInnerHTML={{
-                  __html: `<span class="cmd">$ curl https://inspect-review.vercel.app/api/health</span>
+                  __html: `<span class="cmd">$ curl https://inspect.ataraxy-labs.com/api/health</span>
 {<span class="c">"status"</span>: <span class="g">"ok"</span>}`,
                 }}
               />
             </div>
           </div>
+        </div>
+
+        <div style={{ marginTop: 24 }}>
+          <p style={{ fontSize: 13, color: "var(--dim)", lineHeight: 1.7 }}>
+            <span style={{ color: "var(--accent)", fontWeight: 600 }}>Pricing:</span>{" "}
+            $0.20/M input tokens, $15.00/M output tokens.{" "}
+            Track usage in the{" "}
+            <a href="/dashboard/usage" style={{ color: "var(--cyan)" }}>dashboard</a>.
+          </p>
         </div>
       </section>
 
