@@ -241,9 +241,9 @@ export async function reviewV26(
     callOpenAI(apiKey, model, SYSTEM_RUNTIME, pRuntime, 0, 42),
     // 1 general @ T=0, seed=42
     callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0, 42),
-    // 2 diversity (general) @ T=0.3, seeds 42 and 123
-    callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0.3, 42),
-    callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0.3, 123),
+    // 2 diversity (general) @ T=0.15, seeds 42 and 123
+    callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0.15, 42),
+    callOpenAI(apiKey, model, SYSTEM_PRECISE, pGeneral, 0.15, 123),
   ]);
 
   // Merge + dedup (first-80-char lowercase key)
