@@ -382,22 +382,120 @@ export default function BenchmarksPage() {
         </p>
       </section>
 
+      {/* Martian Bench */}
+      <section>
+        <h2>Martian Bench (137 golden bugs, 50 PRs, GPT-5.2 judge)</h2>
+        <p className="section-desc">
+          <a href="https://leaderboard.martian.ai" style={{ color: "var(--cyan)" }}>
+            Martian Leaderboard
+          </a>
+          . 50 real PRs across Keycloak, Sentry, Grafana, Discourse, and
+          Cal.com. GPT-5.2 judges whether each candidate matches a golden bug.
+          Same judge for all tools.
+        </p>
+
+        <div className="stat-cards">
+          <div className="stat-card" style={{ borderColor: "var(--green)" }}>
+            <div className="stat-value" style={{ color: "var(--green)" }}>47.5%</div>
+            <div className="stat-label">F1 (best run)</div>
+            <div className="stat-detail">avg 44.9% across 4 runs</div>
+          </div>
+          <div className="stat-card" style={{ borderColor: "var(--cyan)" }}>
+            <div className="stat-value" style={{ color: "var(--cyan)" }}>#1</div>
+            <div className="stat-label">leaderboard rank</div>
+            <div className="stat-detail">beating Augment, Cursor, Copilot</div>
+          </div>
+          <div className="stat-card" style={{ borderColor: "var(--purple)" }}>
+            <div className="stat-value" style={{ color: "var(--purple)" }}>44.3%</div>
+            <div className="stat-label">precision</div>
+            <div className="stat-detail">2nd highest after Kilo+Grok</div>
+          </div>
+        </div>
+
+        <div className="comparison-table">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Tool</th>
+                <th>F1</th>
+                <th>Precision</th>
+                <th>Recall</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td><strong style={{ color: "var(--accent)" }}>inspect + GPT-5.2</strong></td>
+                <td className="win">47.5%</td>
+                <td>44.3%</td>
+                <td>51.1%</td>
+              </tr>
+              <tr><td>2</td><td>Augment</td><td>45.8%</td><td>37.3%</td><td className="win">59.1%</td></tr>
+              <tr><td>3</td><td>Cursor Bugbot</td><td>40.5%</td><td>38.3%</td><td>43.1%</td></tr>
+              <tr><td>4</td><td>Propel</td><td>38.1%</td><td>38.9%</td><td>37.2%</td></tr>
+              <tr><td>5</td><td>Greptile</td><td>35.1%</td><td>33.8%</td><td>36.5%</td></tr>
+              <tr><td>6</td><td>Claude Code</td><td>33.6%</td><td>30.5%</td><td>37.2%</td></tr>
+              <tr><td>7</td><td>GitHub Copilot</td><td>32.6%</td><td>23.5%</td><td>53.3%</td></tr>
+              <tr><td>8</td><td>CodeRabbit</td><td>28.1%</td><td>21.2%</td><td>41.6%</td></tr>
+              <tr><td>9</td><td>Gemini</td><td>28.1%</td><td>24.6%</td><td>32.8%</td></tr>
+              <tr><td>10</td><td>Kilo+Grok</td><td>25.0%</td><td className="win">48.9%</td><td>16.8%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bench-group" style={{ marginTop: 24 }}>
+          <h3>F1 Score</h3>
+          {[
+            { name: <><strong style={{ color: "var(--accent)" }}>inspect + GPT-5.2</strong></>, value: "47.5%", valueColor: "var(--green)", width: 47.5, cls: "inspect-bar" },
+            { name: "Augment", value: "45.8%", valueColor: undefined, width: 45.8, cls: "other-bar" },
+            { name: "Cursor Bugbot", value: "40.5%", valueColor: undefined, width: 40.5, cls: "other-bar" },
+            { name: "Greptile", value: "35.1%", valueColor: undefined, width: 35.1, cls: "dim-bar" },
+            { name: "GitHub Copilot", value: "32.6%", valueColor: undefined, width: 32.6, cls: "dim-bar" },
+            { name: "CodeRabbit", value: "28.1%", valueColor: undefined, width: 28.1, cls: "dim-bar" },
+          ].map((row, i) => (
+            <div className="bench-row" key={i}>
+              <div className="bench-label">
+                <span className="name">{row.name}</span>
+                <span className="value" style={row.valueColor ? { color: row.valueColor } : undefined}>
+                  {row.value}
+                </span>
+              </div>
+              <div className="bench-bar-track">
+                <div className={`bench-bar ${row.cls}`} data-width={row.width}>
+                  {row.value}
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="bench-note">
+            137 golden bugs, 50 PRs, GPT-5.2 judge, same judge for all tools
+          </div>
+        </div>
+
+        <p style={{ fontSize: 12, color: "var(--dim2)", marginTop: 8, lineHeight: 1.7 }}>
+          9 parallel specialized lenses (data, concurrency, contracts, security,
+          typos, runtime + 3 general), structural file filter, validation pass
+          with entity before/after verification. Best of 4 runs shown.
+        </p>
+      </section>
+
       {/* How it works */}
       <section>
         <h2>How it works</h2>
         <p className="section-desc">
           inspect runs entity-level triage locally (free, &lt;1s), then sends
-          the top entities to an LLM for focused review. The LLM sees
-          entity-scoped code with before/after context, not a raw diff.
+          enriched risk metadata to an LLM with the full diff for focused review.
         </p>
 
         <p style={{ fontSize: 13, color: "var(--dim)", marginTop: 20, lineHeight: 1.7 }}>
           <strong style={{ color: "var(--fg)" }}>The pipeline.</strong> Run
-          inspect first (free, &lt;1s) to get entity risk rankings. Send top 30
-          entities to an LLM with before/after code + file diff. Gap-review
-          uncovered files. Dedup and filter by confidence. Top 15 findings per
-          PR. The triage step means the LLM sees focused code, not an entire
-          diff.
+          inspect first (free, &lt;1s) to get entity risk rankings with blast
+          radius, dependency counts, and change classifications. Send the top 30
+          entities as structured triage alongside the PR diff to 9 specialized
+          LLM lenses in parallel. Structural file filter drops hallucinations.
+          Validation pass verifies each finding against entity before/after code.
+          Top 7 findings per PR.
         </p>
       </section>
 
