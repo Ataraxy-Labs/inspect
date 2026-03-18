@@ -1,0 +1,16 @@
+{
+  "name": "@inspect/review-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/validate.ts",
+  "scripts": {
+    "validate": "node --import tsx/esm src/validate.ts"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "latest",
+    "@mariozechner/pi-ai": "latest",
+    "@mariozechner/pi-coding-agent": "latest",
+    "tsx": "^4.0.0"
+  }
+}

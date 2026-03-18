@@ -708,6 +708,224 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, inspect_data, model="gpt-4o"):
     return findings
 
 
+# --- Agent mode ---
+
+AGENT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agent")
+
+
+def _build_triage_section(entities):
+    """Build entity-grouped triage section text (Python port of prompts.rs build_rich_triage)."""
+    meaningful = [
+        e for e in entities
+        if e.get("change_type") in ("Modified", "Added")
+        and e.get("entity_type") != "chunk"
+    ]
+    meaningful.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
+    top = meaningful[:20]
+    if not top:
+        return ""
+
+    by_file = {}
+    for e in top:
+        by_file.setdefault(e.get("file_path", ""), []).append(e)
+
+    file_entries = sorted(
+        by_file.items(),
+        key=lambda kv: max(e.get("risk_score", 0) for e in kv[1]),
+        reverse=True,
+    )
+
+    lines = [
+        "## Entity-level triage (highest-risk changes)",
+        "Each entity includes: name, type, change_type, classification, risk (score), blast_radius, dependents count.",
+    ]
+    for fp, ents in file_entries:
+        lines.append(f"\n### {fp}")
+        for e in ents:
+            public = " [PUBLIC API]" if e.get("is_public_api") else ""
+            lines.append(
+                f"- `{e.get('entity_name', '')}` ({e.get('entity_type', '')}, "
+                f"{e.get('change_type', '')}, {e.get('classification', '')}) | "
+                f"risk={e.get('risk_level', '')} ({e.get('risk_score', 0):.2f}) | "
+                f"blast_radius={e.get('blast_radius', 0)} | "
+                f"dependents={e.get('dependent_count', 0)}{public}"
+            )
+    return "\n".join(lines)
+
+
+def run_inspect_agent(repo_dir, base_sha, head_sha, inspect_data, model=None):
+    """Agentic pipeline: spawn pi-core validator with tool access.
+
+    Returns list of finding dicts compatible with run_inspect_llm output:
+    [{description, file, line, confidence, entity_name, risk_level}]
+    """
+    if not inspect_data:
+        return []
+
+    all_entities = inspect_data.get("entity_reviews", [])
+    detector_findings = inspect_data.get("findings", [])
+    diff_text = get_diff_text(repo_dir, base_sha, head_sha)
+
+    if not diff_text:
+        return []
+
+    # Build triage section
+    triage_section = _build_triage_section(all_entities)
+
+    # Truncate diff for the agent (same 80k limit as Rust side)
+    truncated_diff = diff_text[:80_000]
+
+    # Build agent input
+    agent_input = {
+        "pr_title": "",  # Not available in benchmark context
+        "diff": truncated_diff,
+        "triage_section": triage_section,
+        "findings": detector_findings,
+        "entity_reviews": all_entities,
+        "repo_dir": os.path.abspath(repo_dir),
+    }
+    if model:
+        # Map model names to provider
+        if model.startswith("gpt") or model.startswith("o1") or model.startswith("o3") or model.startswith("o4"):
+            agent_input["provider"] = "openai"
+            agent_input["model"] = model
+        elif model.startswith("claude"):
+            agent_input["provider"] = "anthropic"
+            agent_input["model"] = model
+        else:
+            agent_input["provider"] = "anthropic"
+            agent_input["model"] = model
+
+    input_json = json.dumps(agent_input)
+
+    # Spawn agent process
+    print(f"    Agent: spawning validator ({len(detector_findings)} findings, {len(all_entities)} entities)...",
+          file=sys.stderr, end="", flush=True)
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            ["node", "--import", "tsx/esm", "src/validate.ts"],
+            cwd=AGENT_DIR,
+            input=input_json,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env={**os.environ, "ANTHROPIC_API_KEY": ANTHROPIC_API_KEY, "OPENAI_API_KEY": OPENAI_API_KEY},
+        )
+    except subprocess.TimeoutExpired:
+        print(f" TIMEOUT after 300s", file=sys.stderr)
+        return []
+
+    elapsed = time.time() - t0
+
+    if proc.stderr:
+        # Count tool calls from stderr
+        tool_calls = proc.stderr.count("[tool]")
+        print(f" {elapsed:.1f}s, {tool_calls} tool calls", file=sys.stderr, end="", flush=True)
+
+    if proc.returncode != 0:
+        print(f" FAILED (exit {proc.returncode})", file=sys.stderr)
+        if proc.stderr:
+            print(f"    stderr: {proc.stderr[:300]}", file=sys.stderr)
+        return []
+
+    # Parse output
+    stdout = proc.stdout.strip()
+    if not stdout:
+        print(f" empty output", file=sys.stderr)
+        return []
+
+    try:
+        agent_out = json.loads(stdout)
+    except json.JSONDecodeError as e:
+        print(f" JSON parse error: {e}", file=sys.stderr)
+        return []
+
+    verdicts = agent_out.get("verdicts", [])
+
+    # All verdicts from the new agent are issues (true_positive)
+    findings = []
+    for v in verdicts:
+        explanation = v.get("explanation", "")
+        file_path = v.get("entity_name", "")
+        findings.append({
+            "file": file_path,
+            "line": 0,
+            "confidence": 4,
+            "description": explanation,
+            "entity_name": file_path,
+            "risk_level": "High",
+            "source": "agent",
+        })
+
+    print(f" done ({len(findings)} issues)", file=sys.stderr)
+
+    return findings
+
+
+def process_pr_agent(pr_info, model=None):
+    """Process a single PR in agent mode. Returns precision/recall/F1."""
+    owner = pr_info["owner"]
+    repo_name = pr_info["repo_name"]
+    pr_number = pr_info["pr_number"]
+    is_commit = pr_info["is_commit"]
+
+    if not owner or not repo_name:
+        return {"error": "could not parse URL", "results": {}}
+
+    if (owner, repo_name, str(pr_number)) in SKIP_PRS:
+        return {"skipped": True, "skip_reason": "slow PR", "results": {}}
+
+    try:
+        repo_dir = ensure_repo(owner, repo_name)
+    except Exception as e:
+        return {"error": f"clone failed: {e}", "results": {}}
+
+    if is_commit:
+        sha = str(pr_number)
+        _fetch_if_needed(repo_dir, sha)
+        result = subprocess.run(
+            ["git", "rev-parse", f"{sha}^"],
+            cwd=repo_dir, capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {"error": f"could not get parent of {sha}", "results": {}}
+        base_sha = result.stdout.strip()
+        head_sha = sha
+    else:
+        sha_info = resolve_pr_shas(owner, repo_name, pr_number)
+        if not sha_info:
+            return {"error": f"could not resolve PR SHAs", "results": {}}
+        base_sha = sha_info["base_sha"]
+        head_sha = sha_info["head_sha"]
+
+    wt_dir = ensure_worktree(repo_dir, base_sha, head_sha)
+    if not wt_dir:
+        return {"error": "worktree creation failed", "results": {}}
+
+    inspect_data = run_inspect(wt_dir, base_sha, head_sha)
+    findings = run_inspect_agent(wt_dir, base_sha, head_sha, inspect_data, model)
+    eval_result = evaluate_llm_findings(pr_info["comments"], findings, model="gpt-4o")
+
+    entities = (inspect_data or {}).get("entity_reviews", [])
+    hcm_entities = [e for e in entities if e.get("risk_level") in ("High", "Critical", "Medium")]
+    entity_count = len(entities)
+    hcm_count = len(hcm_entities)
+    timing = (inspect_data or {}).get("timing", {})
+
+    return {
+        "error": None,
+        "results": eval_result,
+        "findings_count": len(findings),
+        "findings": findings,
+        "entity_count": entity_count,
+        "hcm_count": hcm_count,
+        "timing": timing,
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+    }
+
+
 # --- Martian judge ---
 
 JUDGE_PROMPT = """You are evaluating AI code review tools.
@@ -1255,7 +1473,7 @@ def _build_pr_record(mode, pr_info, pr_result):
         rec["head_sha"] = pr_result.get("head_sha")
         rec["timing"] = pr_result.get("timing", {})
         rec["verdicts"] = pr_result.get("results", [])
-    elif mode == "llm":
+    elif mode in ("llm", "agent"):
         r = pr_result.get("results", {})
         rec["findings_count"] = pr_result.get("findings_count", 0)
         rec["findings"] = pr_result.get("findings", [])
@@ -1366,7 +1584,7 @@ def save_results(args, prs, all_results, elapsed):
 
     # Save JSON
     filename = f"{ts}_{mode}"
-    if model and mode == "llm":
+    if model and mode in ("llm", "agent"):
         filename += f"_{model.replace('/', '_')}"
     if repo_filter:
         filename += f"_{repo_filter}"
@@ -1493,7 +1711,7 @@ def _compute_aggregates(mode, prs, all_results):
                 "partials_within_0_10_of_medium": sum(1 for g in partial_gaps if 0 < g <= 0.10),
             }
 
-    elif mode == "llm":
+    elif mode in ("llm", "agent"):
         total_tp = total_fp = total_fn = errors = 0
         by_repo = {}
         all_false_negatives = []
@@ -1562,7 +1780,7 @@ def _compute_aggregates(mode, prs, all_results):
 
 def main():
     parser = argparse.ArgumentParser(description="Martian Offline Benchmark eval harness for inspect")
-    parser.add_argument("--mode", choices=["ast", "llm"], default="ast", help="Evaluation mode")
+    parser.add_argument("--mode", choices=["ast", "llm", "agent"], default="ast", help="Evaluation mode")
     parser.add_argument("--limit", type=int, help="Limit number of PRs")
     parser.add_argument("--repo", help="Filter by repo (sentry, grafana, keycloak, discourse, cal_dot_com)")
     parser.add_argument("--model", default="gpt-4o", help="LLM model for llm mode (default: gpt-4o)")
@@ -1588,14 +1806,14 @@ def main():
         print(f"Limited to {len(prs)} PRs, {total_comments} golden comments", file=sys.stderr)
 
     print(f"Mode: {args.mode}", file=sys.stderr)
-    if args.mode == "llm":
+    if args.mode in ("llm", "agent"):
         print(f"Model: {args.model}", file=sys.stderr)
 
     start_time = time.time()
 
     # Deterministic incremental filepath (stable across resume runs)
     _inc_filename = f"incremental_{args.mode}"
-    if args.mode == "llm" and args.model:
+    if args.mode in ("llm", "agent") and args.model:
         _inc_filename += f"_{args.model.replace('/', '_')}"
     if getattr(args, "repo", None):
         _inc_filename += f"_{args.repo}"
@@ -1611,7 +1829,7 @@ def main():
         saved_prs = prev.get("prs", [])[:resume_from]
         # Convert saved PR records back to process_pr_* result format
         for rec in saved_prs:
-            if args.mode == "llm":
+            if args.mode in ("llm", "agent"):
                 all_results_resumed.append({
                     "results": {
                         "tp": rec.get("tp", 0), "fp": rec.get("fp", 0), "fn": rec.get("fn", 0),
@@ -1654,6 +1872,8 @@ def main():
 
         if args.mode == "ast":
             return process_pr_ast(pr_info)
+        elif args.mode == "agent":
+            return process_pr_agent(pr_info, model=args.model)
         else:
             return process_pr_llm(pr_info, model=args.model)
 
@@ -1691,6 +1911,8 @@ def main():
 
             if args.mode == "ast":
                 result = process_pr_ast(pr_info)
+            elif args.mode == "agent":
+                result = process_pr_agent(pr_info, model=args.model)
             else:
                 result = process_pr_llm(pr_info, model=args.model)
 
@@ -1710,7 +1932,7 @@ def main():
                         print(f"    {status:12s} [{r['severity']:>8s}] {comment_short}", file=sys.stderr)
                         if args.verbose:
                             print(f"      reason: {r['reason'][:100]}", file=sys.stderr)
-            elif args.mode == "llm":
+            elif args.mode in ("llm", "agent"):
                 r = result.get("results", {})
                 fc = result.get("findings_count", 0)
                 print(f"  findings: {fc}, tp={r.get('tp',0)}, fp={r.get('fp',0)}, fn={r.get('fn',0)}", file=sys.stderr)

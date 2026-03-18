@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 
 use inspect_core::detect::DetectorFinding;
 use inspect_core::types::{EntityReview, RiskLevel};
@@ -444,6 +444,158 @@ pub async fn review_deterministic(
         } else {
             // Path 3: No findings, no high-risk — skip LLM entirely
             Vec::new()
+        }
+    }
+}
+
+// ── Agentic review via pi-core ──────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct AgentInput<'a> {
+    pr_title: &'a str,
+    diff: &'a str,
+    triage_section: &'a str,
+    findings: &'a [DetectorFinding],
+    entity_reviews: &'a [EntityReview],
+    repo_dir: &'a str,
+    provider: Option<&'a str>,
+    model: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct AgentOutput {
+    #[serde(default)]
+    verdicts: Vec<Verdict>,
+}
+
+/// Spawn the pi-core agentic validator as a child process.
+/// Falls back to the single-shot `review_deterministic` if the agent is unavailable.
+pub async fn review_agentic(
+    state: &AppState,
+    pr_title: &str,
+    diff: &str,
+    triage_section: &str,
+    detector_findings: &[DetectorFinding],
+    entity_reviews: &[EntityReview],
+    repo_dir: &str,
+    max_findings: usize,
+) -> Vec<Finding> {
+    let truncated = prompts::truncate_diff(diff, 80_000);
+
+    let input = AgentInput {
+        pr_title,
+        diff: &truncated,
+        triage_section,
+        findings: detector_findings,
+        entity_reviews,
+        repo_dir,
+        provider: None,  // Uses default (anthropic)
+        model: None,     // Uses default (claude-sonnet-4-20250514)
+    };
+
+    let input_json = match serde_json::to_string(&input) {
+        Ok(j) => j,
+        Err(e) => {
+            warn!("Failed to serialize agent input: {e}");
+            return review_deterministic(
+                state, pr_title, diff, triage_section, detector_findings, entity_reviews, max_findings,
+            ).await;
+        }
+    };
+
+    // Resolve agent script path relative to workspace root
+    let agent_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("agent"))
+        .unwrap_or_else(|| std::path::PathBuf::from("agent"));
+
+    let result = tokio::process::Command::new("node")
+        .arg("--import")
+        .arg("tsx/esm")
+        .arg("src/validate.ts")
+        .current_dir(&agent_dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+
+    let mut child = match result {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Failed to spawn agent process: {e}, falling back to single-shot");
+            return review_deterministic(
+                state, pr_title, diff, triage_section, detector_findings, entity_reviews, max_findings,
+            ).await;
+        }
+    };
+
+    // Write input to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        if let Err(e) = stdin.write_all(input_json.as_bytes()).await {
+            warn!("Failed to write to agent stdin: {e}");
+        }
+        drop(stdin); // Close stdin so the agent reads EOF
+    }
+
+    let output = match child.wait_with_output().await {
+        Ok(o) => o,
+        Err(e) => {
+            warn!("Agent process failed: {e}, falling back to single-shot");
+            return review_deterministic(
+                state, pr_title, diff, triage_section, detector_findings, entity_reviews, max_findings,
+            ).await;
+        }
+    };
+
+    // Log stderr (tool calls, errors)
+    let stderr_str = String::from_utf8_lossy(&output.stderr);
+    if !stderr_str.is_empty() {
+        info!("Agent stderr:\n{}", stderr_str);
+    }
+
+    if !output.status.success() {
+        warn!("Agent exited with status {}, falling back", output.status);
+        return review_deterministic(
+            state, pr_title, diff, triage_section, detector_findings, entity_reviews, max_findings,
+        ).await;
+    }
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    match serde_json::from_str::<AgentOutput>(&stdout_str) {
+        Ok(agent_out) => {
+            agent_out
+                .verdicts
+                .into_iter()
+                .filter(|v| v.verdict == "true_positive")
+                .take(max_findings)
+                .map(|v| {
+                    let original = detector_findings
+                        .iter()
+                        .find(|f| f.rule_id == v.rule_id && f.entity_name == v.entity_name);
+                    match original {
+                        Some(f) => Finding {
+                            issue: format!("[{}] {}", f.rule_id, f.message),
+                            evidence: Some(f.evidence.clone()),
+                            severity: Some(format!("{}", f.severity)),
+                            file: Some(f.file_path.clone()),
+                        },
+                        None => Finding {
+                            issue: format!("[{}] {}", v.rule_id, v.explanation),
+                            evidence: None,
+                            severity: None,
+                            file: None,
+                        },
+                    }
+                })
+                .collect()
+        }
+        Err(e) => {
+            warn!("Failed to parse agent output: {e}, raw: {}", stdout_str.chars().take(500).collect::<String>());
+            review_deterministic(
+                state, pr_title, diff, triage_section, detector_findings, entity_reviews, max_findings,
+            ).await
         }
     }
 }
