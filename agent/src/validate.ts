@@ -77,7 +77,7 @@ async function main() {
     initialState: {
       systemPrompt,
       model,
-      thinkingLevel: isAnthropic ? "medium" : "low",
+      thinkingLevel: isAnthropic ? "low" : "low",
       tools,
     },
     toolExecution: "parallel",
