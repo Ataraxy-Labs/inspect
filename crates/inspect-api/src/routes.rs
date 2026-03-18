@@ -312,10 +312,24 @@ async fn run_review(state: Arc<AppState>, job_id: String) {
     // Build triage context
     let triage_section = prompts::build_rich_triage(&result.entity_reviews);
 
-    // Step 3: LLM review with deep_v2 strategy
-    let findings = openai::review_deep_v2(&state, &pr.title, &diff, &triage_section, 15).await;
+    // Step 3: Deterministic-first LLM review
+    let findings = openai::review_deterministic(
+        &state,
+        &pr.title,
+        &diff,
+        &triage_section,
+        &result.findings,
+        &result.entity_reviews,
+        15,
+    )
+    .await;
     let review_ms = review_start.elapsed().as_millis() as u64;
-    info!("Review complete in {}ms: {} findings", review_ms, findings.len());
+    info!(
+        "Review complete in {}ms: {} detector findings, {} LLM findings",
+        review_ms,
+        result.findings.len(),
+        findings.len()
+    );
 
     // Build response
     let entities = build_entity_json(&result, None);
@@ -323,6 +337,7 @@ async fn run_review(state: Arc<AppState>, job_id: String) {
 
     let response = ReviewResponse {
         findings,
+        detector_findings: result.findings.clone(),
         triage: TriageResponse {
             verdict: format!("{}", verdict),
             total_entities: result.stats.total_entities,

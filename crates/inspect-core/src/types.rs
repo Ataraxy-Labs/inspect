@@ -1,6 +1,8 @@
 use sem_core::model::change::{ChangeType, SemanticChange};
 use serde::{Deserialize, Serialize};
 
+use crate::detect::DetectorFinding;
+
 /// ConGra change classification taxonomy.
 /// Categorizes what dimension(s) of the code changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,6 +156,8 @@ pub struct ReviewResult {
     pub groups: Vec<ChangeGroup>,
     pub stats: ReviewStats,
     pub timing: Timing,
+    /// Deterministic detector findings (pattern rules, contract checks, diff heuristics)
+    pub findings: Vec<DetectorFinding>,
     /// The underlying semantic changes (for formatters that want raw data)
     #[serde(skip)]
     pub changes: Vec<SemanticChange>,

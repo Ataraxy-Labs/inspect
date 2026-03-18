@@ -7,6 +7,8 @@ use tokio::sync::RwLock;
 
 use crate::openai::Finding;
 
+use inspect_core::detect::DetectorFinding;
+
 #[derive(Clone)]
 pub struct AppState {
     pub port: u16,
@@ -45,6 +47,7 @@ pub struct ReviewJob {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewResponse {
     pub findings: Vec<Finding>,
+    pub detector_findings: Vec<DetectorFinding>,
     pub triage: TriageResponse,
     pub timing: TimingInfo,
 }

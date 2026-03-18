@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod classify;
+pub mod detect;
 pub mod github;
 pub mod llm;
 pub mod noise;

@@ -9,6 +9,7 @@ use sem_core::parser::graph::EntityGraph;
 use sem_core::parser::plugins::create_default_registry;
 
 use crate::classify::classify_change;
+use crate::detect::run_all_detectors;
 use crate::github::FilePair;
 use crate::risk::{compute_risk_score, is_public_api, score_to_level};
 use crate::types::*;
@@ -147,6 +148,10 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     }
 
     let scoring_ms = scoring_start.elapsed().as_millis() as u64;
+
+    // Phase 5: Run deterministic detectors
+    let findings = run_all_detectors(&reviews, &diff.changes, Some(&graph));
+
     let total_ms = total_start.elapsed().as_millis() as u64;
 
     let stats = compute_stats(&reviews);
@@ -166,6 +171,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         groups,
         stats,
         timing,
+        findings,
         changes: diff.changes,
     })
 }
@@ -265,6 +271,10 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
     }
 
     let scoring_ms = scoring_start.elapsed().as_millis() as u64;
+
+    // Run deterministic detectors (no graph available for remote analysis)
+    let findings = run_all_detectors(&reviews, &diff.changes, None);
+
     let total_ms = total_start.elapsed().as_millis() as u64;
 
     let stats = compute_stats(&reviews);
@@ -284,6 +294,7 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
         groups,
         stats,
         timing,
+        findings,
         changes: diff.changes,
     })
 }
@@ -438,6 +449,7 @@ fn empty_result() -> ReviewResult {
             },
         },
         timing: Timing::default(),
+        findings: vec![],
         changes: vec![],
     }
 }

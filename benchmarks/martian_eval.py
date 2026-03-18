@@ -340,6 +340,27 @@ def ast_match_comment(golden_comment, inspect_data):
     comment_text = golden_comment["comment"]
     golden_idents = extract_identifiers(comment_text)
 
+    # Strategy 0: Detector findings match — highest signal, pre-filtered for likely bugs
+    findings = inspect_data.get("findings", [])
+    if findings and golden_idents:
+        for ident in golden_idents:
+            ident_lower = ident.lower()
+            for f in findings:
+                fname = f.get("entity_name", "").lower()
+                fmsg = f.get("message", "").lower()
+                fevidence = f.get("evidence", "").lower()
+                if (ident_lower == fname or ident_lower in fname or fname in ident_lower
+                        or ident_lower in fmsg or ident_lower in fevidence):
+                    # Find the matching entity review for the return value
+                    matched_entity = next(
+                        (e for e in entities if e.get("entity_id") == f.get("entity_id")),
+                        None,
+                    )
+                    return "match", (
+                        f"S0: '{ident}' matches finding '{f.get('rule_id')}' on "
+                        f"'{f.get('entity_name')}' ({f.get('severity', '')})"
+                    ), [matched_entity] if matched_entity else []
+
     # Extract entity info
     entity_names = set()
     entity_files = set()
@@ -445,12 +466,15 @@ def _call_openai(prompt, model, system=None):
         "temperature": 0.0,
     }).encode()
 
+    # Use local proxy if available, else fall back to OpenAI
+    _openai_base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
+    _openai_key = os.environ.get("OPENAI_API_KEY_OVERRIDE", OPENAI_API_KEY)
     req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        f"{_openai_base}/v1/chat/completions",
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Authorization": f"Bearer {_openai_key}",
         },
     )
     with urllib.request.urlopen(req, timeout=120) as resp:
@@ -535,8 +559,20 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, inspect_data, model="gpt-4o"):
     if not hcm_entities:
         return []
 
+    # Build entity_id -> detector findings index for prompt enrichment
+    detector_findings = inspect_data.get("findings", [])
+    findings_by_entity = {}
+    for f in detector_findings:
+        eid = f.get("entity_id", "")
+        findings_by_entity.setdefault(eid, []).append(f)
+
     # Select top entities with file diversity (round-robin)
-    hcm_entities.sort(key=lambda e: e.get("risk_score", 0), reverse=True)
+    # Prioritize entities that have detector findings
+    entities_with_findings = set(findings_by_entity.keys())
+    hcm_entities.sort(key=lambda e: (
+        e.get("entity_id", "") in entities_with_findings,  # findings first
+        e.get("risk_score", 0),
+    ), reverse=True)
     by_file = {}
     for e in hcm_entities:
         fp = e.get("file_path", "")
@@ -564,6 +600,7 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, inspect_data, model="gpt-4o"):
     for e in selected:
         file_path = e.get("file_path", "")
         entity_name = e.get("entity_name", "")
+        entity_id = e.get("entity_id", "")
         before = (e.get("before_content") or "")[:3000]
         after = (e.get("after_content") or "")[:3000]
         file_diff = _extract_file_diff(diff_text, file_path)[:3000]
@@ -577,6 +614,18 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, inspect_data, model="gpt-4o"):
                 flat_deps.append(str(d))
         deps = ", ".join(flat_deps[:10])
 
+        # Include detector findings for this entity if any
+        entity_findings = findings_by_entity.get(entity_id, [])
+        findings_section = ""
+        if entity_findings:
+            lines = ["DETECTOR FINDINGS (static analysis flagged these — validate or reject):"]
+            for df in entity_findings:
+                lines.append(
+                    f"  - [{df.get('severity', '')}] {df.get('rule_id', '')}: "
+                    f"{df.get('message', '')} (evidence: {df.get('evidence', '')[:200]})"
+                )
+            findings_section = "\n".join(lines) + "\n\n"
+
         prompt = (
             f"You are reviewing a code change. Find real bugs, security vulnerabilities, "
             f"performance issues, and maintainability problems.\n\n"
@@ -585,11 +634,14 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, inspect_data, model="gpt-4o"):
             f"Risk: {e.get('risk_level', '')}, score={e.get('risk_score', 0):.2f}, "
             f"dependents={e.get('dependent_count', 0)}\n"
             f"Dependencies: {deps}\n\n"
+            f"{findings_section}"
             f"DIFF:\n```diff\n{file_diff}\n```\n\n"
             f"BEFORE:\n```\n{before}\n```\n\n"
             f"AFTER:\n```\n{after}\n```\n\n"
             f"Rules:\n"
             f"- Max 2 issues. Only report issues you are highly confident about.\n"
+            f"- If detector findings are provided, validate them against the diff. "
+            f"Confirm true positives, reject false positives.\n"
             f"- In the description, always reference the specific variable, function, or class name.\n"
             f"- Rate confidence 1-5 (5=certain bug, 3=likely issue, 1=nitpick).\n\n"
             f"Respond with a JSON array:\n"
@@ -599,8 +651,19 @@ def run_inspect_llm(repo_dir, base_sha, head_sha, inspect_data, model="gpt-4o"):
         )
         tasks.append((e, prompt))
 
-    # Parallel LLM calls
+    # Seed findings from detectors (high-confidence ones become direct candidates)
     findings = []
+    for df in detector_findings:
+        if df.get("confidence", 0) >= 0.7:
+            findings.append({
+                "file": df.get("file_path", ""),
+                "line": df.get("start_line", 0),
+                "confidence": 4 if df.get("confidence", 0) >= 0.85 else 3,
+                "description": f"{df.get('message', '')} [{df.get('rule_id', '')}]",
+                "entity_name": df.get("entity_name", ""),
+                "risk_level": df.get("severity", ""),
+                "source": "detector",
+            })
     done = [0]
 
     def _review_entity(args):
@@ -1027,6 +1090,7 @@ def print_ast_report(all_results, prs):
     partials = 0
     misses = 0
     errors = 0
+    s0_matches = 0  # matches from Strategy 0 (detector findings)
 
     by_repo = {}
     by_severity = {}
@@ -1041,8 +1105,11 @@ def print_ast_report(all_results, prs):
             total += 1
             v = r["verdict"]
             sev = r["severity"]
+            reason = r.get("reason", "")
             if v == "match":
                 matches += 1
+                if reason.startswith("S0:"):
+                    s0_matches += 1
             elif v == "partial":
                 partials += 1
             else:
@@ -1060,6 +1127,8 @@ def print_ast_report(all_results, prs):
     print(f"AST TRIAGE RESULTS ({total} golden comments, {errors} PR errors)")
     print(f"{'='*70}")
     print(f"  Match:   {matches:3d} ({matches/total*100:.1f}%)" if total else "  Match:   0")
+    if s0_matches:
+        print(f"    (S0 detector findings: {s0_matches})")
     print(f"  Partial: {partials:3d} ({partials/total*100:.1f}%)" if total else "  Partial: 0")
     print(f"  Miss:    {misses:3d} ({misses/total*100:.1f}%)" if total else "  Miss:    0")
 
@@ -1152,6 +1221,79 @@ def print_llm_report(all_results, prs):
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
 
 
+def _build_pr_record(mode, pr_info, pr_result):
+    """Build a single PR record dict for saving."""
+    rec = {
+        "repo": pr_info["repo"],
+        "pr_number": pr_info["pr_number"],
+        "pr_title": pr_info["pr_title"],
+        "url": pr_info["real_url"],
+        "golden_comment_count": len(pr_info["comments"]),
+        "golden_comments": pr_info["comments"],
+        "error": pr_result.get("error"),
+    }
+    if mode == "ast":
+        rec["entity_count"] = pr_result.get("entity_count", 0)
+        rec["hcm_count"] = pr_result.get("hcm_count", 0)
+        rec["base_sha"] = pr_result.get("base_sha")
+        rec["head_sha"] = pr_result.get("head_sha")
+        rec["timing"] = pr_result.get("timing", {})
+        rec["verdicts"] = pr_result.get("results", [])
+    elif mode == "llm":
+        r = pr_result.get("results", {})
+        rec["findings_count"] = pr_result.get("findings_count", 0)
+        rec["findings"] = pr_result.get("findings", [])
+        rec["tp"] = r.get("tp", 0)
+        rec["fp"] = r.get("fp", 0)
+        rec["fn"] = r.get("fn", 0)
+        rec["precision"] = r.get("precision", 0.0)
+        rec["recall"] = r.get("recall", 0.0)
+        rec["f1"] = r.get("f1", 0.0)
+        rec["true_positives"] = r.get("true_positives", [])
+        rec["false_positives"] = r.get("false_positives", [])
+        rec["false_negatives"] = r.get("false_negatives", [])
+        rec["entity_count"] = pr_result.get("entity_count", 0)
+        rec["hcm_count"] = pr_result.get("hcm_count", 0)
+        rec["timing"] = pr_result.get("timing", {})
+        rec["base_sha"] = pr_result.get("base_sha")
+        rec["head_sha"] = pr_result.get("head_sha")
+        rec["ast_verdicts"] = pr_result.get("ast_verdicts", [])
+        rec["fn_diagnoses"] = pr_result.get("fn_diagnoses", [])
+    return rec
+
+
+def save_incremental(filepath, args, prs_so_far, results_so_far, start_time):
+    """Write current progress to the results file after each PR."""
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    mode = args.mode
+    model = getattr(args, "model", None)
+    repo_filter = getattr(args, "repo", None)
+    elapsed = time.time() - start_time
+
+    pr_records = [
+        _build_pr_record(mode, pr_info, pr_result)
+        for pr_info, pr_result in zip(prs_so_far, results_so_far)
+    ]
+
+    agg = _compute_aggregates(mode, prs_so_far, results_so_far)
+
+    result = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "mode": mode,
+        "model": model,
+        "repo_filter": repo_filter,
+        "pr_count": len(prs_so_far),
+        "golden_comment_count": sum(len(pr["comments"]) for pr in prs_so_far),
+        "elapsed_seconds": round(elapsed, 1),
+        "per_pr_seconds": round(elapsed / len(prs_so_far), 1) if prs_so_far else 0,
+        "in_progress": True,
+        "aggregates": agg,
+        "prs": pr_records,
+    }
+    with open(filepath, "w") as f:
+        json.dump(result, f, indent=2)
+
+
 def save_results(args, prs, all_results, elapsed):
     """Save full run results to benchmarks/results/ as timestamped JSON.
 
@@ -1169,48 +1311,10 @@ def save_results(args, prs, all_results, elapsed):
     repo_filter = getattr(args, "repo", None)
 
     # Build per-PR detail records
-    pr_records = []
-    for pr_info, pr_result in zip(prs, all_results):
-        rec = {
-            "repo": pr_info["repo"],
-            "pr_number": pr_info["pr_number"],
-            "pr_title": pr_info["pr_title"],
-            "url": pr_info["real_url"],
-            "golden_comment_count": len(pr_info["comments"]),
-            "golden_comments": pr_info["comments"],
-            "error": pr_result.get("error"),
-        }
-
-        if mode == "ast":
-            rec["entity_count"] = pr_result.get("entity_count", 0)
-            rec["hcm_count"] = pr_result.get("hcm_count", 0)
-            rec["base_sha"] = pr_result.get("base_sha")
-            rec["head_sha"] = pr_result.get("head_sha")
-            rec["timing"] = pr_result.get("timing", {})
-            rec["verdicts"] = pr_result.get("results", [])
-        elif mode == "llm":
-            r = pr_result.get("results", {})
-            rec["findings_count"] = pr_result.get("findings_count", 0)
-            rec["findings"] = pr_result.get("findings", [])
-            rec["tp"] = r.get("tp", 0)
-            rec["fp"] = r.get("fp", 0)
-            rec["fn"] = r.get("fn", 0)
-            rec["precision"] = r.get("precision", 0.0)
-            rec["recall"] = r.get("recall", 0.0)
-            rec["f1"] = r.get("f1", 0.0)
-            rec["true_positives"] = r.get("true_positives", [])
-            rec["false_positives"] = r.get("false_positives", [])
-            rec["false_negatives"] = r.get("false_negatives", [])
-            # AST/deterministic metadata for correlation
-            rec["entity_count"] = pr_result.get("entity_count", 0)
-            rec["hcm_count"] = pr_result.get("hcm_count", 0)
-            rec["timing"] = pr_result.get("timing", {})
-            rec["base_sha"] = pr_result.get("base_sha")
-            rec["head_sha"] = pr_result.get("head_sha")
-            rec["ast_verdicts"] = pr_result.get("ast_verdicts", [])
-            rec["fn_diagnoses"] = pr_result.get("fn_diagnoses", [])
-
-        pr_records.append(rec)
+    pr_records = [
+        _build_pr_record(mode, pr_info, pr_result)
+        for pr_info, pr_result in zip(prs, all_results)
+    ]
 
     # Compute aggregates
     agg = _compute_aggregates(mode, prs, all_results)
@@ -1444,6 +1548,7 @@ def main():
     parser.add_argument("--model", default="gpt-4o", help="LLM model for llm mode (default: gpt-4o)")
     parser.add_argument("--parallel", type=int, default=1, help="Number of PRs to process in parallel")
     parser.add_argument("--verbose", action="store_true", help="Show per-comment details")
+    parser.add_argument("--resume-from", type=int, default=0, metavar="N", help="Resume from PR number N (0-indexed, skips first N PRs). Loads results from existing incremental file.")
     args = parser.parse_args()
 
     # Ensure inspect binary exists
@@ -1466,8 +1571,57 @@ def main():
     if args.mode == "llm":
         print(f"Model: {args.model}", file=sys.stderr)
 
-    all_results = []
     start_time = time.time()
+
+    # Deterministic incremental filepath (stable across resume runs)
+    _inc_filename = f"incremental_{args.mode}"
+    if args.mode == "llm" and args.model:
+        _inc_filename += f"_{args.model.replace('/', '_')}"
+    if getattr(args, "repo", None):
+        _inc_filename += f"_{args.repo}"
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    _inc_filepath = os.path.join(RESULTS_DIR, f"{_inc_filename}.json")
+
+    # Resume: load previous results from incremental file
+    resume_from = getattr(args, "resume_from", 0)
+    all_results_resumed = []
+    if resume_from > 0 and os.path.exists(_inc_filepath):
+        with open(_inc_filepath) as f:
+            prev = json.load(f)
+        saved_prs = prev.get("prs", [])[:resume_from]
+        # Convert saved PR records back to process_pr_* result format
+        for rec in saved_prs:
+            if args.mode == "llm":
+                all_results_resumed.append({
+                    "results": {
+                        "tp": rec.get("tp", 0), "fp": rec.get("fp", 0), "fn": rec.get("fn", 0),
+                        "precision": rec.get("precision", 0.0), "recall": rec.get("recall", 0.0), "f1": rec.get("f1", 0.0),
+                        "true_positives": rec.get("true_positives", []),
+                        "false_positives": rec.get("false_positives", []),
+                        "false_negatives": rec.get("false_negatives", []),
+                    },
+                    "findings_count": rec.get("findings_count", 0),
+                    "findings": rec.get("findings", []),
+                    "entity_count": rec.get("entity_count", 0),
+                    "hcm_count": rec.get("hcm_count", 0),
+                    "timing": rec.get("timing", {}),
+                    "base_sha": rec.get("base_sha"),
+                    "head_sha": rec.get("head_sha"),
+                    "ast_verdicts": rec.get("ast_verdicts", []),
+                    "fn_diagnoses": rec.get("fn_diagnoses", []),
+                    "error": rec.get("error"),
+                })
+            else:
+                all_results_resumed.append({
+                    "results": rec.get("verdicts", []),
+                    "entity_count": rec.get("entity_count", 0),
+                    "hcm_count": rec.get("hcm_count", 0),
+                    "timing": rec.get("timing", {}),
+                    "base_sha": rec.get("base_sha"),
+                    "head_sha": rec.get("head_sha"),
+                    "error": rec.get("error"),
+                })
+        print(f"Resuming from PR {resume_from}, loaded {len(all_results_resumed)} previous results from {_inc_filepath}", file=sys.stderr)
 
     def _process_one(i_pr):
         i, pr_info = i_pr
@@ -1497,8 +1651,12 @@ def main():
         all_results.sort(key=lambda x: x[0])
         all_results_final = [r for _, _, r in all_results]
     else:
-        all_results_final = []
+        all_results_final = list(all_results_resumed)  # seed with resumed data
         for i, pr_info in enumerate(prs):
+            if i < resume_from:
+                print(f"\n[{i+1}/{len(prs)}] SKIP (resumed): {pr_info['repo']} PR#{pr_info['pr_number']}", file=sys.stderr)
+                continue
+
             pr_label = f"{pr_info['repo']} PR#{pr_info['pr_number']}"
             print(f"\n[{i+1}/{len(prs)}] {pr_label}: {pr_info['pr_title'][:60]}", file=sys.stderr)
             print(f"  URL: {pr_info['real_url']}", file=sys.stderr)
@@ -1528,6 +1686,9 @@ def main():
                 print(f"  findings: {fc}, tp={r.get('tp',0)}, fp={r.get('fp',0)}, fn={r.get('fn',0)}", file=sys.stderr)
 
             all_results_final.append(result)
+
+            # Incremental save after each PR
+            save_incremental(_inc_filepath, args, prs[:i+1], all_results_final, start_time)
 
     elapsed = time.time() - start_time
 
