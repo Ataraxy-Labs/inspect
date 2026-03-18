@@ -48,9 +48,9 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
 
     let changed_entity_ids: HashSet<&str> = diff.changes.iter().map(|c| c.entity_id.as_str()).collect();
 
-    // Phase 3: Build entity graph from ALL source files (parallel via rayon)
+    // Phase 3: Build entity graph (with disk cache for stable worktrees)
     let graph_start = Instant::now();
-    let graph = EntityGraph::build(git.repo_root(), &all_files, &registry);
+    let graph = load_or_build_graph(repo_path, git.repo_root(), &all_files, &registry);
     let graph_build_ms = graph_start.elapsed().as_millis() as u64;
     let total_graph_entities = graph.entities.len();
 
@@ -60,11 +60,17 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     let mut reviews: Vec<EntityReview> = Vec::new();
     let mut dependency_edges: Vec<(String, String)> = Vec::new();
 
+    // Skip expensive BFS impact_count when there are many changed entities
+    let skip_bfs = diff.changes.len() > 500;
+
     for change in &diff.changes {
         let dependents = graph.get_dependents(&change.entity_id);
         let dependencies = graph.get_dependencies(&change.entity_id);
-        // Use capped impact count to avoid full BFS on hub entities
-        let blast_radius = graph.impact_count(&change.entity_id, 10_000);
+        let blast_radius = if skip_bfs {
+            dependents.len()
+        } else {
+            graph.impact_count(&change.entity_id, 10_000)
+        };
 
         let classification = classify_change(change);
         let after_content_ref = change.after_content.as_deref();
@@ -331,6 +337,41 @@ pub(crate) fn compute_stats(reviews: &[EntityReview]) -> ReviewStats {
         by_classification: by_classification,
         by_change_type: by_change,
     }
+}
+
+/// Load a cached EntityGraph from disk, or build and cache it.
+/// Cache key: SHA-256 of the canonical repo path. Stored in /tmp/inspect-graph-cache/.
+fn load_or_build_graph(
+    repo_path: &Path,
+    root: &Path,
+    files: &[String],
+    registry: &sem_core::parser::registry::ParserRegistry,
+) -> EntityGraph {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let cache_dir = Path::new("/tmp/inspect-graph-cache");
+    let _ = std::fs::create_dir_all(cache_dir);
+
+    // Hash the canonical repo path as cache key
+    let canonical = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+    let mut hasher = DefaultHasher::new();
+    canonical.hash(&mut hasher);
+    let cache_file = cache_dir.join(format!("{:016x}.bin", hasher.finish()));
+
+    // Try loading from cache
+    if let Ok(data) = std::fs::read(&cache_file) {
+        if let Ok(graph) = bincode::deserialize::<EntityGraph>(&data) {
+            return graph;
+        }
+    }
+
+    // Build fresh and cache
+    let graph = EntityGraph::build(root, files, registry);
+    if let Ok(data) = bincode::serialize(&graph) {
+        let _ = std::fs::write(&cache_file, data);
+    }
+    graph
 }
 
 /// List all tracked source files in the repo via `git ls-files`.

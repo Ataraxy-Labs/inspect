@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 inspect-core = { path = "../inspect-core" }
-sem-core = { git = "https://github.com/Ataraxy-Labs/sem", rev = "71a6579" }
+sem-core = { path = "../../../sem/crates/sem-core" }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

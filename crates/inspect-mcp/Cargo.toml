@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 inspect-core = { path = "../inspect-core" }
-sem-core = { git = "https://github.com/Ataraxy-Labs/sem", rev = "71a6579" }
+sem-core = { path = "../../../sem/crates/sem-core" }
 rmcp = { version = "0.14", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
