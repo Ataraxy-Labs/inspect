@@ -68,6 +68,13 @@ REPO_MAP = {
 # Reverse map: GitHub owner/repo -> short name
 REVERSE_REPO_MAP = {v: k for k, v in REPO_MAP.items()}
 
+# Skip slow PRs with huge graphs (>100s each, 89% of total runtime)
+SKIP_PRS = {
+    ("ai-code-review-evaluation", "sentry-greptile", "1"),   # 148s, 121k graph entities
+    ("grafana", "grafana", "90939"),                          # 92s, 76k graph entities
+    ("getsentry", "sentry", "94376"),                         # 65s, 123k graph entities
+}
+
 
 # --- Dataset loading ---
 
@@ -834,6 +841,9 @@ def process_pr_ast(pr_info):
     if not owner or not repo_name:
         return {"error": "could not parse URL", "results": []}
 
+    if (owner, repo_name, str(pr_number)) in SKIP_PRS:
+        return {"skipped": True, "skip_reason": "slow PR", "results": []}
+
     # Get repo
     try:
         repo_dir = ensure_repo(owner, repo_name)
@@ -1089,6 +1099,7 @@ def print_ast_report(all_results, prs):
     matches = 0
     partials = 0
     misses = 0
+    skipped = 0
     errors = 0
     s0_matches = 0  # matches from Strategy 0 (detector findings)
 
@@ -1097,6 +1108,9 @@ def print_ast_report(all_results, prs):
 
     for pr_info, pr_result in zip(prs, all_results):
         repo = pr_info["repo"]
+        if pr_result.get("skipped"):
+            skipped += 1
+            continue
         if pr_result.get("error"):
             errors += 1
             continue
@@ -1124,7 +1138,7 @@ def print_ast_report(all_results, prs):
             by_severity[sev]["total"] += 1
 
     print(f"\n{'='*70}")
-    print(f"AST TRIAGE RESULTS ({total} golden comments, {errors} PR errors)")
+    print(f"AST TRIAGE RESULTS ({total} golden comments, {skipped} PR skipped, {errors} PR errors)")
     print(f"{'='*70}")
     print(f"  Match:   {matches:3d} ({matches/total*100:.1f}%)" if total else "  Match:   0")
     if s0_matches:
@@ -1230,6 +1244,8 @@ def _build_pr_record(mode, pr_info, pr_result):
         "url": pr_info["real_url"],
         "golden_comment_count": len(pr_info["comments"]),
         "golden_comments": pr_info["comments"],
+        "skipped": pr_result.get("skipped", False),
+        "skip_reason": pr_result.get("skip_reason"),
         "error": pr_result.get("error"),
     }
     if mode == "ast":
@@ -1382,12 +1398,15 @@ def _compute_aggregates(mode, prs, all_results):
     agg = {}
 
     if mode == "ast":
-        total = matches = partials = misses = errors = 0
+        total = matches = partials = misses = skipped = errors = 0
         by_repo = {}
         by_severity = {}
 
         for pr_info, pr_result in zip(prs, all_results):
             repo = pr_info["repo"]
+            if pr_result.get("skipped"):
+                skipped += 1
+                continue
             if pr_result.get("error"):
                 errors += 1
                 continue
@@ -1415,6 +1434,7 @@ def _compute_aggregates(mode, prs, all_results):
             "match": matches,
             "partial": partials,
             "miss": misses,
+            "skipped": skipped,
             "errors": errors,
             "strict_recall": round(strict_recall, 4),
             "lenient_recall": round(lenient_recall, 4),
@@ -1609,6 +1629,8 @@ def main():
                     "head_sha": rec.get("head_sha"),
                     "ast_verdicts": rec.get("ast_verdicts", []),
                     "fn_diagnoses": rec.get("fn_diagnoses", []),
+                    "skipped": rec.get("skipped", False),
+                    "skip_reason": rec.get("skip_reason"),
                     "error": rec.get("error"),
                 })
             else:
@@ -1619,6 +1641,8 @@ def main():
                     "timing": rec.get("timing", {}),
                     "base_sha": rec.get("base_sha"),
                     "head_sha": rec.get("head_sha"),
+                    "skipped": rec.get("skipped", False),
+                    "skip_reason": rec.get("skip_reason"),
                     "error": rec.get("error"),
                 })
         print(f"Resuming from PR {resume_from}, loaded {len(all_results_resumed)} previous results from {_inc_filepath}", file=sys.stderr)
@@ -1641,7 +1665,10 @@ def main():
                 i, pr_info = futures[future]
                 result = future.result()
                 all_results.append((i, pr_info, result))
-                if result.get("error"):
+                if result.get("skipped"):
+                    reason = result.get("skip_reason", "skipped")
+                    print(f"  [{pr_info['repo']}] SKIPPED: {reason}", file=sys.stderr)
+                elif result.get("error"):
                     print(f"  [{pr_info['repo']}] ERROR: {result['error']}", file=sys.stderr)
                 elif args.mode == "ast":
                     ec = result.get("entity_count", 0)
@@ -1667,7 +1694,10 @@ def main():
             else:
                 result = process_pr_llm(pr_info, model=args.model)
 
-            if result.get("error"):
+            if result.get("skipped"):
+                reason = result.get("skip_reason", "skipped")
+                print(f"  SKIPPED: {reason}", file=sys.stderr)
+            elif result.get("error"):
                 print(f"  ERROR: {result['error']}", file=sys.stderr)
             elif args.mode == "ast":
                 ec = result.get("entity_count", 0)
