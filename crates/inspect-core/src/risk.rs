@@ -60,19 +60,36 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
     }
 
     // Blast radius: normalized by total entity count, sqrt-scaled
+    // Cap for generic names to prevent name-collision inflation
     if total_entities > 0 && review.blast_radius > 0 {
-        let blast_ratio = review.blast_radius as f64 / total_entities as f64;
+        let effective_blast = if is_generic_name(&review.entity_name) {
+            review.blast_radius.min(5)
+        } else {
+            review.blast_radius
+        };
+        let blast_ratio = effective_blast as f64 / total_entities as f64;
         score += blast_ratio.sqrt() * 0.30;
     }
 
     // Dependent count: logarithmic scaling
+    // Cap dependents for generic/stdlib names to prevent name-collision inflation
     if review.dependent_count > 0 {
-        score += (1.0 + review.dependent_count as f64).ln() * 0.15;
+        let effective_dependents = if is_generic_name(&review.entity_name) {
+            review.dependent_count.min(5)
+        } else {
+            review.dependent_count
+        };
+        score += (1.0 + effective_dependents as f64).ln() * 0.15;
     }
 
     // Cosmetic-only discount (structural_hash unchanged)
     if review.structural_change == Some(false) {
         score *= 0.2;
+    }
+
+    // Test-file penalty: test entities shouldn't dominate the top-20
+    if is_test_file(&review.file_path) {
+        score *= 0.3;
     }
 
     score.min(1.0)
@@ -111,6 +128,44 @@ fn change_type_weight(ct: ChangeType) -> f64 {
         ChangeType::Moved => 0.0,
         ChangeType::Added => 0.02,
     }
+}
+
+/// Check if an entity name is generic/short or matches a known stdlib type,
+/// which causes name-collision inflation in dependency graphs.
+fn is_generic_name(name: &str) -> bool {
+    const GENERIC_NAMES: &[&str] = &[
+        "read", "write", "get", "set", "run", "close", "open", "reset", "mark", "flush",
+        "init", "start", "stop", "next", "size", "name", "type", "value", "key", "put",
+        "order", "clone", "equals", "hashCode", "toString", "toByteArray",
+        "toArray", "length", "format", "parse", "create", "build", "apply",
+        "accept", "test", "compare", "merge", "update", "delete", "remove",
+        "add", "clear", "contains", "iterator", "stream", "values", "keys",
+    ];
+    const STDLIB_TYPES: &[&str] = &[
+        "ByteArrayInputStream", "ByteArrayOutputStream", "HashMap", "ArrayList",
+        "String", "Object", "List", "Map", "Set", "Stream", "Optional",
+        "InputStream", "OutputStream", "Reader", "Writer", "Iterator",
+        "StringBuilder", "StringBuffer", "LinkedList", "TreeMap", "HashSet",
+    ];
+
+    let lower = name.to_lowercase();
+    if GENERIC_NAMES.iter().any(|g| g.to_lowercase() == lower) {
+        return true;
+    }
+    STDLIB_TYPES.contains(&name)
+}
+
+/// Check if a file path looks like a test file.
+fn is_test_file(file_path: &str) -> bool {
+    file_path.contains("/test/")
+        || file_path.contains("/tests/")
+        || file_path.contains("Test.java")
+        || file_path.contains("_test.go")
+        || file_path.contains(".test.ts")
+        || file_path.contains(".spec.ts")
+        || file_path.contains(".test.js")
+        || file_path.contains(".spec.js")
+        || file_path.contains("_test.rs")
 }
 
 /// Detect if an entity is a public API based on name and type patterns.

@@ -24,9 +24,7 @@ pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
         let after_lines: Vec<&str> = after.lines().collect();
 
         check_negation_flip(change, &before_lines, &after_lines, &mut findings);
-        check_callee_swap(change, &before_lines, &after_lines, &mut findings);
         check_removed_guard(change, &before_lines, &after_lines, &mut findings);
-        check_added_early_return(change, &before_lines, &after_lines, &mut findings);
         check_off_by_one(change, &before_lines, &after_lines, &mut findings);
     }
 
@@ -100,47 +98,6 @@ fn check_negation_flip(
     }
 }
 
-/// Detect function calls replaced with different function calls.
-fn check_callee_swap(
-    change: &SemanticChange,
-    before_lines: &[&str],
-    after_lines: &[&str],
-    findings: &mut Vec<DetectorFinding>,
-) {
-    for (line_num, after_line) in after_lines.iter().enumerate() {
-        let after_trimmed = after_line.trim();
-
-        for before_line in before_lines {
-            let before_trimmed = before_line.trim();
-
-            // Look for lines that differ only in the function name before `(`
-            if let (Some(before_call), Some(after_call)) =
-                (extract_call_name(before_trimmed), extract_call_name(after_trimmed))
-            {
-                if before_call != after_call {
-                    // Check the rest of the line is similar (same args roughly)
-                    let before_rest = &before_trimmed[before_trimmed.find('(').unwrap_or(0)..];
-                    let after_rest = &after_trimmed[after_trimmed.find('(').unwrap_or(0)..];
-                    if before_rest == after_rest && !before_rest.is_empty() {
-                        findings.push(make_finding(
-                            "callee-swap",
-                            &format!(
-                                "Function call changed from `{}` to `{}` — verify this is intentional",
-                                before_call, after_call
-                            ),
-                            0.5,
-                            Severity::Medium,
-                            change,
-                            after_trimmed,
-                            line_num + 1,
-                        ));
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Detect guard clauses, asserts, or if-checks that were removed.
 fn check_removed_guard(
     change: &SemanticChange,
@@ -185,40 +142,6 @@ fn check_removed_guard(
                     1,
                 ));
             }
-        }
-    }
-}
-
-/// Detect early returns added in new code that could skip important logic.
-fn check_added_early_return(
-    change: &SemanticChange,
-    before_lines: &[&str],
-    after_lines: &[&str],
-    findings: &mut Vec<DetectorFinding>,
-) {
-    let before_joined = before_lines.join("\n");
-
-    for (line_num, after_line) in after_lines.iter().enumerate() {
-        let trimmed = after_line.trim();
-
-        // Look for return statements in the first half of the function
-        let is_early = line_num < after_lines.len() / 2;
-        if !is_early {
-            continue;
-        }
-
-        let is_return = trimmed.starts_with("return ") || trimmed == "return;" || trimmed == "return";
-
-        if is_return && !before_joined.contains(trimmed) {
-            findings.push(make_finding(
-                "added-early-return",
-                "Early return added — verify it doesn't skip important downstream logic",
-                0.5,
-                Severity::Medium,
-                change,
-                trimmed,
-                line_num + 1,
-            ));
         }
     }
 }
@@ -330,31 +253,6 @@ fn differs_only_by_negation(before: &str, after: &str) -> Option<&'static str> {
     None
 }
 
-/// Extract the function/method call name from a line like `  validate(x)`.
-fn extract_call_name(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
-
-    // Find the first `(` that's preceded by an identifier
-    let paren_pos = trimmed.find('(')?;
-    if paren_pos == 0 {
-        return None;
-    }
-
-    // Walk backwards from `(` to find the start of the identifier
-    let before_paren = &trimmed[..paren_pos];
-    let ident_start = before_paren
-        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-        .map(|i| i + 1)
-        .unwrap_or(0);
-
-    let name = &before_paren[ident_start..];
-    if name.is_empty() || name.chars().next()?.is_ascii_digit() {
-        return None;
-    }
-
-    Some(name)
-}
-
 fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max {
         s
@@ -422,14 +320,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_callee_swap() {
-        let change = make_modified("  validate(input)", "  sanitize(input)");
-        let findings = run_diff_heuristics(&[change]);
-        assert!(
-            findings.iter().any(|f| f.rule_id == "callee-swap"),
-            "Should detect callee swap: {:?}",
-            findings
-        );
-    }
 }

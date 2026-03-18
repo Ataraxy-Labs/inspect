@@ -63,10 +63,6 @@ pub fn run_pattern_rules(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
 
         let lang = detect_lang(&change.file_path);
 
-        // General patterns (all languages)
-        check_fixme_todo(change, after, &mut findings);
-        check_magic_number(change, after, &mut findings);
-
         match lang {
             Lang::JsTs => check_js_ts_patterns(change, after, &mut findings),
             Lang::Rust => check_rust_patterns(change, after, &mut findings),
@@ -601,81 +597,6 @@ fn check_security_patterns(
 }
 
 // ---------------------------------------------------------------------------
-// General patterns
-// ---------------------------------------------------------------------------
-
-fn check_fixme_todo(
-    change: &SemanticChange,
-    after: &str,
-    findings: &mut Vec<DetectorFinding>,
-) {
-    let before = change.before_content.as_deref().unwrap_or("");
-
-    for (line_num, line) in after.lines().enumerate() {
-        let trimmed = line.trim();
-        for marker in &["FIXME", "TODO", "HACK", "XXX"] {
-            if trimmed.contains(marker) && !before.contains(trimmed) {
-                findings.push(finding(
-                    "fixme-todo",
-                    &format!("`{}` marker in new code — should be resolved before merging", marker),
-                    0.7,
-                    Severity::Low,
-                    change,
-                    trimmed,
-                    line_num + 1,
-                ));
-                break; // one marker per line is enough
-            }
-        }
-    }
-}
-
-fn check_magic_number(
-    change: &SemanticChange,
-    after: &str,
-    findings: &mut Vec<DetectorFinding>,
-) {
-    for (line_num, line) in after.lines().enumerate() {
-        let trimmed = line.trim();
-
-        // Skip comments, imports, consts
-        if trimmed.starts_with("//") || trimmed.starts_with("#")
-            || trimmed.starts_with("*") || trimmed.starts_with("/*")
-            || trimmed.starts_with("import ") || trimmed.starts_with("use ")
-            || trimmed.contains("const ") || trimmed.contains("CONST")
-            || trimmed.contains("static ") || trimmed.contains("enum ")
-        {
-            continue;
-        }
-
-        // Look for numeric literals > 1 in conditions or assignments
-        if trimmed.contains("if ") || trimmed.contains("if(")
-            || trimmed.contains("while ") || trimmed.contains("while(")
-            || trimmed.contains("== ") || trimmed.contains("!= ")
-            || trimmed.contains(">= ") || trimmed.contains("<= ")
-        {
-            for word in trimmed.split(|c: char| !c.is_ascii_digit() && c != '.') {
-                if let Ok(n) = word.parse::<f64>() {
-                    if n > 1.0 && n != 2.0 {
-                        // Very common: 0, 1, 2 are usually fine
-                        findings.push(finding(
-                            "magic-number",
-                            &format!("Magic number `{}` — consider extracting to a named constant", word),
-                            0.4,
-                            Severity::Low,
-                            change,
-                            trimmed,
-                            line_num + 1,
-                        ));
-                        break; // one per line
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -750,24 +671,6 @@ mod tests {
             old_file_path: None,
             before_content: None,
             after_content: Some(after_content.to_string()),
-            commit_sha: None,
-            author: None,
-            timestamp: None,
-            structural_change: None,
-        }
-    }
-
-    fn make_modified_change(file_path: &str, before: &str, after: &str) -> SemanticChange {
-        SemanticChange {
-            id: "test-id".to_string(),
-            entity_id: format!("{}::function::test_fn", file_path),
-            change_type: ChangeType::Modified,
-            entity_type: "function".to_string(),
-            entity_name: "test_fn".to_string(),
-            file_path: file_path.to_string(),
-            old_file_path: None,
-            before_content: Some(before.to_string()),
-            after_content: Some(after.to_string()),
             commit_sha: None,
             author: None,
             timestamp: None,
@@ -864,23 +767,6 @@ mod tests {
         let change = make_change("src/db.ts", "const result = await db.query(`SELECT * FROM users WHERE id = ${userId}`);");
         let findings = run_pattern_rules(&[change]);
         assert!(findings.iter().any(|f| f.rule_id == "sql-injection"), "Should detect SQL injection: {:?}", findings);
-    }
-
-    #[test]
-    fn test_fixme_todo_new_only() {
-        let before = "// existing code";
-        let after = "// existing code\n// TODO: fix this later";
-        let change = make_modified_change("src/app.ts", before, after);
-        let findings = run_pattern_rules(&[change]);
-        assert!(findings.iter().any(|f| f.rule_id == "fixme-todo"), "Should detect new TODO: {:?}", findings);
-    }
-
-    #[test]
-    fn test_fixme_todo_existing_is_ok() {
-        let content = "// TODO: this was already here";
-        let change = make_modified_change("src/app.ts", content, content);
-        let findings = run_pattern_rules(&[change]);
-        assert!(!findings.iter().any(|f| f.rule_id == "fixme-todo"), "Should NOT flag existing TODO: {:?}", findings);
     }
 
     #[test]
