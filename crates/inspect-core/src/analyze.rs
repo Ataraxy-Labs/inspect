@@ -152,6 +152,32 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     // Phase 5: Run deterministic detectors
     let findings = run_all_detectors(&reviews, &diff.changes, Some(&graph));
 
+    // Phase 6: Boost entity scores based on detector findings
+    // Entities with concrete suspicious patterns (negation flips, removed guards,
+    // etc.) get a score bump, helping differentiate them from same-file peers.
+    if !findings.is_empty() {
+        use std::collections::HashMap as FindingsMap;
+        let mut finding_boost: FindingsMap<&str, f64> = FindingsMap::new();
+        for f in &findings {
+            let severity_bonus = match f.severity {
+                crate::detect::Severity::Critical => 0.10,
+                crate::detect::Severity::High => 0.08,
+                crate::detect::Severity::Medium => 0.05,
+                crate::detect::Severity::Low => 0.03,
+            };
+            let boost = severity_bonus * f.confidence;
+            let entry = finding_boost.entry(f.entity_id.as_str()).or_insert(0.0);
+            *entry = (*entry + boost).min(0.15); // cap total boost per entity
+        }
+        for review in &mut reviews {
+            if let Some(&boost) = finding_boost.get(review.entity_id.as_str()) {
+                review.risk_score = (review.risk_score + boost).min(1.0);
+                review.risk_level = score_to_level(review.risk_score);
+            }
+        }
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+    }
+
     let total_ms = total_start.elapsed().as_millis() as u64;
 
     let stats = compute_stats(&reviews);
@@ -274,6 +300,30 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
 
     // Run deterministic detectors (no graph available for remote analysis)
     let findings = run_all_detectors(&reviews, &diff.changes, None);
+
+    // Boost entity scores based on detector findings (same as local analysis)
+    if !findings.is_empty() {
+        use std::collections::HashMap as FindingsMap;
+        let mut finding_boost: FindingsMap<&str, f64> = FindingsMap::new();
+        for f in &findings {
+            let severity_bonus = match f.severity {
+                crate::detect::Severity::Critical => 0.10,
+                crate::detect::Severity::High => 0.08,
+                crate::detect::Severity::Medium => 0.05,
+                crate::detect::Severity::Low => 0.03,
+            };
+            let boost = severity_bonus * f.confidence;
+            let entry = finding_boost.entry(f.entity_id.as_str()).or_insert(0.0);
+            *entry = (*entry + boost).min(0.15);
+        }
+        for review in &mut reviews {
+            if let Some(&boost) = finding_boost.get(review.entity_id.as_str()) {
+                review.risk_score = (review.risk_score + boost).min(1.0);
+                review.risk_level = score_to_level(review.risk_score);
+            }
+        }
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+    }
 
     let total_ms = total_start.elapsed().as_millis() as u64;
 
