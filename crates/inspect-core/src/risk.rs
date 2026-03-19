@@ -112,36 +112,12 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
         score *= 0.5;
     }
 
-    // Entity size boost: larger entities (more lines) contain more logic
-    // and are more likely to contain integration bugs
-    let entity_lines = if review.end_line > review.start_line {
-        review.end_line - review.start_line
-    } else {
-        0
-    };
-    if entity_lines > 20 {
-        score += ((entity_lines as f64).ln() * 0.02).min(0.08);
-    }
-
     // Low-bug-density entity types: re-exports, type aliases, interfaces,
     // and property/field declarations rarely contain logic bugs but inflate
     // the top-20 with noise. Discount them to prioritize functions/methods.
     let etype = review.entity_type.as_str();
     if matches!(etype, "export" | "type" | "interface" | "property" | "field") {
         score *= 0.6;
-    }
-
-    // Handler/controller boost: entities with names suggesting they're
-    // request handlers or business logic entry points are more likely
-    // to contain integration bugs
-    let name_lower = review.entity_name.to_lowercase();
-    if name_lower.contains("handler") || name_lower.contains("controller")
-        || name_lower.contains("service") || name_lower.contains("resource")
-        || name_lower.contains("resolver") || name_lower.contains("middleware")
-        || name_lower.contains("processor") || name_lower.contains("consumer")
-        || name_lower.contains("provider") || name_lower.contains("factory")
-    {
-        score += 0.05;
     }
 
     score.min(1.0)

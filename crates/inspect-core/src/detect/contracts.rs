@@ -35,10 +35,6 @@ pub fn run_contract_checks(
             ChangeType::Modified => {
                 check_signature_change(review, graph, &mut findings);
                 check_type_change_propagation(review, graph, &changed_ids, &mut findings);
-                check_high_dependency_added(review, &mut findings);
-            }
-            ChangeType::Added => {
-                check_high_dependency_added(review, &mut findings);
             }
             _ => {}
         }
@@ -205,41 +201,6 @@ fn check_type_change_propagation(
         entity_name: review.entity_name.clone(),
         file_path: review.file_path.clone(),
         evidence: format!("Unchanged dependents: {}{}", display_deps.join(", "), suffix),
-        start_line: review.start_line,
-        end_line: review.end_line,
-    });
-}
-
-/// Newly added entities with high dependency count are integration/orchestration
-/// points where integration bugs tend to hide — they're wiring together many pieces.
-fn check_high_dependency_added(
-    review: &EntityReview,
-    findings: &mut Vec<DetectorFinding>,
-) {
-    if review.dependency_count < 10 {
-        return;
-    }
-
-    let severity = if review.dependency_count >= 50 {
-        Severity::High
-    } else {
-        Severity::Medium
-    };
-
-    findings.push(DetectorFinding {
-        rule_id: "high-dependency-added".to_string(),
-        message: format!(
-            "New entity `{}` depends on {} other entities — complex integration point that warrants review",
-            review.entity_name,
-            review.dependency_count,
-        ),
-        detector: DetectorKind::Contract,
-        confidence: 0.7,
-        severity,
-        entity_id: review.entity_id.clone(),
-        entity_name: review.entity_name.clone(),
-        file_path: review.file_path.clone(),
-        evidence: format!("dependency_count={}", review.dependency_count),
         start_line: review.start_line,
         end_line: review.end_line,
     });
