@@ -2,6 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Build first so benchmark uses the latest code
+cargo build --release -p inspect-cli 2>/dev/null
+
 # Run the benchmark and extract metrics
 OUTPUT=$(python3 benchmarks/autoresearch_bench.py 2>/dev/null)
 

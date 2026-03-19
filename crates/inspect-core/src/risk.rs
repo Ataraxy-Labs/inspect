@@ -68,7 +68,8 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
             review.blast_radius
         };
         let blast_ratio = effective_blast as f64 / total_entities as f64;
-        score += blast_ratio.sqrt() * 0.30;
+        // Cap blast contribution to prevent it from drowning other signals
+        score += (blast_ratio.sqrt() * 0.30).min(0.20);
     }
 
     // Dependent count: logarithmic scaling
@@ -79,7 +80,13 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
         } else {
             review.dependent_count
         };
-        score += (1.0 + effective_dependents as f64).ln() * 0.15;
+        score += (1.0 + effective_dependents as f64).ln() * 0.12;
+    }
+
+    // Complexity signal: entities with many dependencies (imports) are
+    // orchestration points where integration bugs tend to hide
+    if review.dependency_count > 3 {
+        score += ((review.dependency_count as f64).ln() * 0.04).min(0.12);
     }
 
     // Cosmetic-only discount (structural_hash unchanged)
@@ -87,9 +94,9 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
         score *= 0.2;
     }
 
-    // Test-file penalty: test entities shouldn't dominate the top-20
+    // Test-file penalty: mild — test code has real bugs too
     if is_test_file(&review.file_path) {
-        score *= 0.3;
+        score *= 0.7;
     }
 
     score.min(1.0)
