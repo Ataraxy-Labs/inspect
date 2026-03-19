@@ -112,6 +112,16 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
         score *= 0.5;
     }
 
+    // Low-bug-density entity types: re-exports, type aliases, interfaces,
+    // and property/field declarations rarely contain logic bugs but inflate
+    // the top-20 with noise. Discount them to prioritize functions/methods.
+    let etype = review.entity_type.as_str();
+    if matches!(etype, "export" | "type" | "interface" | "property" | "field")
+        && review.change_type == ChangeType::Added
+    {
+        score *= 0.6;
+    }
+
     score.min(1.0)
 }
 
