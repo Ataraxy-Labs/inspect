@@ -134,25 +134,32 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
 
     reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
-    // File diversity: mildly demote non-top entities within the same file
-    // This pushes the top-20 towards covering more distinct files,
-    // reducing cases where many entities from one file crowd out bugs in other files
+    // File diversity: progressively demote non-top entities within the same file
+    // The 2nd entity in a file gets a mild discount, 3rd gets more, etc.
+    // This pushes the top-20 towards covering more distinct files.
     {
-        let mut top_per_file: HashMap<String, f64> = HashMap::new();
-        for review in reviews.iter() {
-            let entry = top_per_file
+        // First, compute the rank of each entity within its file (by score)
+        let mut file_rank: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, review) in reviews.iter().enumerate() {
+            file_rank
                 .entry(review.file_path.clone())
-                .or_insert(0.0_f64);
-            if review.risk_score > *entry {
-                *entry = review.risk_score;
+                .or_default()
+                .push(idx);
+        }
+        // file_rank already in score-descending order since reviews is sorted
+        let mut entity_file_rank: Vec<usize> = vec![0; reviews.len()];
+        for indices in file_rank.values() {
+            for (rank, &idx) in indices.iter().enumerate() {
+                entity_file_rank[idx] = rank; // 0 = top entity in file
             }
         }
-        for review in reviews.iter_mut() {
-            if let Some(&top_score) = top_per_file.get(&review.file_path) {
-                if review.risk_score < top_score {
-                    review.risk_score *= 0.85;
-                    review.risk_level = score_to_level(review.risk_score);
-                }
+        for (idx, review) in reviews.iter_mut().enumerate() {
+            let rank = entity_file_rank[idx];
+            if rank > 0 {
+                // Progressive penalty: 0.90 for 2nd, 0.81 for 3rd, 0.73 for 4th, ...
+                let discount = 0.90_f64.powi(rank as i32);
+                review.risk_score *= discount;
+                review.risk_level = score_to_level(review.risk_score);
             }
         }
         reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
