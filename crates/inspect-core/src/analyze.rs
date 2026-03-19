@@ -243,7 +243,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     {
         use std::collections::HashMap;
         reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-        let max_per_file = 2;
+        let max_per_file = 1;
         let mut file_counts: HashMap<&str, usize> = HashMap::new();
         let mut to_discount: Vec<usize> = Vec::new();
         for (i, r) in reviews.iter().enumerate() {
