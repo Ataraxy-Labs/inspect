@@ -134,6 +134,30 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
 
     reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
+    // File diversity: mildly demote non-top entities within the same file
+    // This pushes the top-20 towards covering more distinct files,
+    // reducing cases where many entities from one file crowd out bugs in other files
+    {
+        let mut top_per_file: HashMap<String, f64> = HashMap::new();
+        for review in reviews.iter() {
+            let entry = top_per_file
+                .entry(review.file_path.clone())
+                .or_insert(0.0_f64);
+            if review.risk_score > *entry {
+                *entry = review.risk_score;
+            }
+        }
+        for review in reviews.iter_mut() {
+            if let Some(&top_score) = top_per_file.get(&review.file_path) {
+                if review.risk_score < top_score {
+                    review.risk_score *= 0.95;
+                    review.risk_level = score_to_level(review.risk_score);
+                }
+            }
+        }
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+    }
+
     let groups = untangle(&reviews, &dependency_edges);
 
     let entity_to_group: HashMap<&str, usize> = groups
