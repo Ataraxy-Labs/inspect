@@ -72,12 +72,18 @@ Outputs `METRIC neg_recall=<value>` plus secondary metrics. Takes ~60s.
 - Phase 1: Removed noisy detectors (callee-swap, magic-number, added-early-return, fixme-todo)
 - Phase 2: Added generic-name penalty, test-file penalty (0.3x), sqrt blast radius scaling
 - Enriched 113/128 anchors to entity-level for stricter evaluation
+- **Exp 4 (KEPT)**: Cap blast radius contribution at 0.20, add dependency_count complexity bonus (ln*0.04, cap 0.12), relax test penalty from 0.3→0.7 — gained +2 bugs (keycloak), 111→113
+- **Exp 5 (discarded)**: Boost Modified/Deleted change type weights — no effect
+- **Exp 6 (discarded)**: Further lower blast cap to 0.15, test penalty to 0.85 — no effect
+- **Key insight**: Weight tuning alone hits a wall. All entities in same file share blast_radius, so they sort identically. The remaining 15 misses need structural scoring changes or new signals, not just weight adjustments.
+- **IMPORTANT**: autoresearch.sh was missing `cargo build --release` — experiments 2-3 were stale! Fixed in exp 4.
 
 ## Ideas to Try
-1. **Relax test-file penalty** from 0.3 to 0.5-0.6 (recover 5 bugs, risk: test noise in top-20)
-2. **Per-PR relative scoring** — normalize scores within each PR so small entities in large PRs aren't drowned out
-3. **Boost modified entities over added** — modifications to existing code are riskier than new code
-4. **Classification weight tuning** — Functional changes may need higher weight
-5. **Detector-based risk boost** — if an entity has a detector finding, boost its risk score
-6. **Dependent-count scaling** — adjust logarithmic curve for better discrimination
-7. **Blast radius capping** — the 10000 cap may not discriminate enough between entities
+1. **Content-length signal**: Larger functions have more surface area for bugs — use line count as a tiebreaker
+2. **Structural change boost for Modified**: If structural_change == Some(true), give extra boost since the code logic actually changed
+3. **Named entity boost over chunks**: Entities with real names (not "lines 81-100") should score higher than chunk placeholders
+4. **Per-file entity diversity**: If multiple entities in same file, boost the one with most dependents/dependencies as the "representative"
+5. **Increase classification weights**: Functional classification at 0.22 may be too low — try 0.30+
+6. ~~Test-file penalty tuning~~ (diminishing returns)
+7. ~~Blast radius cap tuning~~ (diminishing returns)
+8. **New detector signals**: Detect async-in-forEach, case-sensitivity issues, type confusion patterns
