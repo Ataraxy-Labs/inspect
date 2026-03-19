@@ -175,8 +175,43 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
                 review.risk_level = score_to_level(review.risk_score);
             }
         }
-        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
     }
+
+    // Phase 7: Penalize duplicate-name entities in the same file.
+    // When multiple entities share the same (file, name) (e.g., 4 `updatedValue`
+    // variables in MultiEmail.tsx), discount the duplicates so they don't all
+    // occupy top-20 slots. Keep the highest-scoring one at full score.
+    {
+        use std::collections::HashMap;
+        // Find groups of (file, name) duplicates — collect indices
+        let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
+        for (i, r) in reviews.iter().enumerate() {
+            groups.entry((r.file_path.clone(), r.entity_name.clone()))
+                .or_default()
+                .push(i);
+        }
+        // Collect indices to discount (drop groups reference before mutating)
+        let mut to_discount: Vec<usize> = Vec::new();
+        for (_, indices) in &groups {
+            if indices.len() <= 1 {
+                continue;
+            }
+            let mut sorted_indices = indices.clone();
+            sorted_indices.sort_by(|a, b| {
+                reviews[*b].risk_score.partial_cmp(&reviews[*a].risk_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            // Skip the first (highest score), discount the rest
+            to_discount.extend_from_slice(&sorted_indices[1..]);
+        }
+        drop(groups);
+        for idx in to_discount {
+            reviews[idx].risk_score *= 0.5;
+            reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
+        }
+    }
+
+    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
     let total_ms = total_start.elapsed().as_millis() as u64;
 
