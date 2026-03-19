@@ -84,20 +84,41 @@ Outputs `METRIC neg_recall=<value>` plus secondary metrics. Takes ~60s.
 - Per-fold: cal.com 100%, discourse 96.4%, grafana 100%, keycloak 91.7%, sentry 88.0%
 - **+11 bugs from baseline** (111→122)
 
-## Remaining 6 Misses (likely irreducible)
-- 4 FILE-ONLY (spec.rb not found, stories.tsx x2 rank 60/420, spec.tsx rank 94/420) — wrong anchor or impossible
-- 2 ENTITY in huge PRs (keycloak getId rank 39/324, createMultiDeleteMultiReadMulti rank 43/622) — too deep
+## Remaining 6 Misses (irreducible at TOP_N=20)
+
+### Why they're irreducible:
+1. **discourse 5f8a spec.rb** — NOT_FOUND in entities; Ruby spec files not parsed by inspector
+2. **keycloak 36880 getId** — Deleted method, generic name, zero blast radius, zero deps, score 0.054 vs cutoff 0.537. Would need +0.48 boost = impossible
+3. **keycloak 40940 createMultiDeleteMultiReadMulti** — Test entity in 622-entity PR, rank 43, score 0.483 vs cutoff 0.814. Would need +0.33 boost
+4. **sentry PR#5 stories.tsx ×2** — Variable entity at rank 60/420, score 0.627 vs cutoff 0.801. PR has 20 unique files in top-20 already
+5. **sentry PR#5 spec.tsx** — Variable at rank 94/420, score 0.389 vs cutoff 0.801. Delta = -0.41
+
+### Fragile survivors:
+- discourse d38c: 93 CSS chunk entities ALL at tied score 0.15 — top-20 ordering is arbitrary
+- discourse 4f8aed Gemfile_rails4.lock: chunk at rank 19, margin +0.02 above cutoff
+- Any scoring change that shifts non-chunk entities up by >0.02 kills a discourse bug
 
 ## Key Wins (what worked)
-1. **Per-file diversity** (max 1 per file, 0.15x for excess, progressive 0.90^rank) — biggest single win, +5 bugs
+1. **Per-file diversity** (max 1 per file, 0.15x for excess) — biggest single win, +5 bugs
 2. **Low-bug-density entity type discount** (0.6x for export/type/interface/property/field) — +2 sentry bugs
 3. **Blast radius cap** (0.20 max contribution) — prevented blast from drowning other signals
-4. **Finding boost increase** (cap 0.15→0.25, severity +50%) — +1 discourse bug
-5. **New detectors** (null-return-introduced, logic-gate-swap) — quality improvement
+4. **Finding boost increase** (cap 0.35, severity +50%) — +1 discourse bug
+5. **New detectors** (null-return-introduced, logic-gate-swap, variable-near-miss, boolean-polarity-flip, argument-order-swap, boolean-literal-flip) — quality improvements
 6. **Chunk/dedup penalties** — quality improvements
 
-## What Didn't Work
-- Weight tuning alone: all entities in same file lift equally
-- Test penalty tuning: test entities have 0 blast/deps, multiplicative penalty irrelevant
-- Structural change bonus: regressions
+## What Didn't Work (56+ experiments tried)
+- Weight tuning: all entities in same file lift equally
+- Progressive file diversity (0.80^rank, 0.85^rank, 0.90^rank): regressions or neutral
+- Per-directory diversity: regressions
+- Handler/controller name boost: too broad
+- Entity size boost: marginal regression
+- Singleton-file boost: major regression
 - Class entity discount: redundant with per-file diversity
+- Cross-file dependency boost: already captured by blast radius
+- Group-aware score elevation: missed entities not in groups
+- Large-PR score compression: preserves relative rankings
+- Log-scaled blast radius: different curve hurts existing wins
+- Blast radius cap reduction 0.20→0.15: major regression
+- Finding boost cap increase 0.35→0.50: no change
+- Test penalty removal: regression
+- Chunk penalty tuning: uniform shift preserves rankings
