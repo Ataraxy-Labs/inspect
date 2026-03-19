@@ -80,15 +80,24 @@ Outputs `METRIC neg_recall=<value>` plus secondary metrics. Takes ~60s.
 - Test penalty tuning irrelevant: test entities have 0 blast/deps, the multiplicative penalty doesn't help
 - Structural change bonus: adding +0.05-0.06 for structural_change==true caused regressions
 
-## Current: -0.8916 (89.16% mean recall, 114/128 bugs hit)
-- Per-fold: cal.com 96.8%, discourse 85.7%, grafana 100%, keycloak 83.3%, sentry 80.0%
+## Current: -0.9522 (95.22% mean recall, 122/128 bugs hit)
+- Per-fold: cal.com 100%, discourse 96.4%, grafana 100%, keycloak 91.7%, sentry 88.0%
+- **+11 bugs from baseline** (111→122)
 
-## Remaining 14 Misses
-- 7 FILE-ONLY (CSS/config/lockfile/spec) — structurally impossible without parser changes
-- 7 with entity names ranked 27-210 — too far from top-20 cutoff in large PRs
+## Remaining 6 Misses (likely irreducible)
+- 4 FILE-ONLY (spec.rb not found, stories.tsx x2 rank 60/420, spec.tsx rank 94/420) — wrong anchor or impossible
+- 2 ENTITY in huge PRs (keycloak getId rank 39/324, createMultiDeleteMultiReadMulti rank 43/622) — too deep
 
-## Ideas to Try
-1. **New detectors**: Write detectors that fire on the specific bug patterns in the missed entities — this would boost those entities via the finding boost mechanism
-2. ~~Weight tuning~~ (exhausted, diminishing returns)
-3. ~~Test penalty tuning~~ (exhausted)
-4. ~~Structural change bonus~~ (caused regressions)
+## Key Wins (what worked)
+1. **Per-file diversity** (max 1 per file, 0.15x for excess, progressive 0.90^rank) — biggest single win, +5 bugs
+2. **Low-bug-density entity type discount** (0.6x for export/type/interface/property/field) — +2 sentry bugs
+3. **Blast radius cap** (0.20 max contribution) — prevented blast from drowning other signals
+4. **Finding boost increase** (cap 0.15→0.25, severity +50%) — +1 discourse bug
+5. **New detectors** (null-return-introduced, logic-gate-swap) — quality improvement
+6. **Chunk/dedup penalties** — quality improvements
+
+## What Didn't Work
+- Weight tuning alone: all entities in same file lift equally
+- Test penalty tuning: test entities have 0 blast/deps, multiplicative penalty irrelevant
+- Structural change bonus: regressions
+- Class entity discount: redundant with per-file diversity
