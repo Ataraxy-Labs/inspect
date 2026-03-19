@@ -26,6 +26,8 @@ pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
         check_negation_flip(change, &before_lines, &after_lines, &mut findings);
         check_removed_guard(change, &before_lines, &after_lines, &mut findings);
         check_off_by_one(change, &before_lines, &after_lines, &mut findings);
+        check_null_return_introduced(change, before, after, &mut findings);
+        check_error_path_changed(change, before, after, &mut findings);
     }
 
     findings
@@ -208,6 +210,109 @@ fn check_off_by_one(
     }
 }
 
+/// Detect when `return null` / `return None` / `return nil` is introduced in the
+/// after-content but was absent in the before-content. This often indicates a
+/// contract violation where callers expect a non-null return.
+fn check_null_return_introduced(
+    change: &SemanticChange,
+    before: &str,
+    after: &str,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    let null_return_patterns = [
+        "return null",
+        "return None",
+        "return nil",
+        "? null :",
+        "? null;",
+        "? None",
+    ];
+
+    let before_lower = before.to_lowercase();
+    let after_lower = after.to_lowercase();
+
+    for pat in &null_return_patterns {
+        let pat_lower = pat.to_lowercase();
+        let before_has = before_lower.contains(&pat_lower);
+        let after_has = after_lower.contains(&pat_lower);
+
+        if after_has && !before_has {
+            // Find the line number in after content
+            for (line_num, line) in after.lines().enumerate() {
+                if line.to_lowercase().contains(&pat_lower) {
+                    findings.push(make_finding(
+                        "null-return-introduced",
+                        &format!("New `{}` path introduced — callers may not expect null", pat),
+                        0.75,
+                        Severity::High,
+                        change,
+                        line.trim(),
+                        line_num + 1,
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Detect when error handling paths change: catch blocks modified, error returns
+/// changed, or exception handling altered between before and after.
+fn check_error_path_changed(
+    change: &SemanticChange,
+    before: &str,
+    after: &str,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    let before_lines: Vec<&str> = before.lines().collect();
+    let after_lines: Vec<&str> = after.lines().collect();
+
+    // Detect swapped && / || in conditions (logic gate swap)
+    for (line_num, after_line) in after_lines.iter().enumerate() {
+        let at = after_line.trim();
+        if at.is_empty() || at.starts_with("//") || at.starts_with("*") {
+            continue;
+        }
+        for before_line in &before_lines {
+            let bt = before_line.trim();
+            if bt.is_empty() || bt == at {
+                continue;
+            }
+
+            // && to || swap
+            if bt.contains("&&") && at.contains("||") {
+                let norm_b = bt.replace("&&", "@@GATE@@");
+                let norm_a = at.replace("||", "@@GATE@@");
+                if norm_b == norm_a {
+                    findings.push(make_finding(
+                        "logic-gate-swap",
+                        "Condition changed from `&&` to `||` — verify AND/OR logic is correct",
+                        0.7,
+                        Severity::High,
+                        change,
+                        at,
+                        line_num + 1,
+                    ));
+                }
+            } else if bt.contains("||") && at.contains("&&") {
+                let norm_b = bt.replace("||", "@@GATE@@");
+                let norm_a = at.replace("&&", "@@GATE@@");
+                if norm_b == norm_a {
+                    findings.push(make_finding(
+                        "logic-gate-swap",
+                        "Condition changed from `||` to `&&` — verify AND/OR logic is correct",
+                        0.7,
+                        Severity::High,
+                        change,
+                        at,
+                        line_num + 1,
+                    ));
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -316,6 +421,54 @@ mod tests {
         assert!(
             findings.iter().any(|f| f.rule_id == "off-by-one-hint"),
             "Should detect < to <= change: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_null_return_introduced() {
+        let before = "@Override\npublic Long getCount() {\n    return delegate.getCount();\n}";
+        let after = "@Override\npublic Long getCount() {\n    Model m = supplier.get();\n    return m == null ? null : m.getCount();\n}";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "null-return-introduced"),
+            "Should detect new null return path: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_null_return_not_flagged_when_already_present() {
+        let before = "if (x == null) return null;\nreturn x.value();";
+        let after = "if (x == null) return null;\nreturn x.newValue();";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "null-return-introduced"),
+            "Should NOT flag when null return already existed: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_logic_gate_swap_and_to_or() {
+        let change = make_modified("if (isAdmin && isOwner) {", "if (isAdmin || isOwner) {");
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "logic-gate-swap"),
+            "Should detect && to || swap: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_logic_gate_swap_or_to_and() {
+        let change = make_modified("if (a || b) {", "if (a && b) {");
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "logic-gate-swap"),
+            "Should detect || to && swap: {:?}",
             findings
         );
     }
