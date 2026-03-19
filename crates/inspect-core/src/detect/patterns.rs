@@ -155,6 +155,22 @@ fn check_js_ts_patterns(
             }
         }
 
+        // conditional-flag-assignment: same boolean flag controlling multiple property assignments
+        // Pattern: `x ? value : undefined` or ternary with boolean flag for property setting
+        if trimmed.contains("? ") && trimmed.contains(": undefined")
+            && (trimmed.contains("IS_") || trimmed.contains("is_") || trimmed.contains("ENABLE") || trimmed.contains("enable"))
+        {
+            findings.push(finding(
+                "conditional-flag-assignment",
+                "Property conditionally set via boolean flag — verify the condition polarity is correct",
+                0.5,
+                Severity::Medium,
+                change,
+                trimmed,
+                line_num + 1,
+            ));
+        }
+
         // missing-react-key: .map( returning JSX without key
         if trimmed.contains(".map(") && (trimmed.contains("<") || trimmed.contains("=>")) {
             // Look at the next few lines for JSX without key=
@@ -167,6 +183,33 @@ fn check_js_ts_patterns(
                     "JSX element in .map() callback is missing a `key` prop",
                     0.75,
                     Severity::Medium,
+                    change,
+                    trimmed,
+                    line_num + 1,
+                ));
+            }
+        }
+
+        // permission-and-or: using && where || is likely intended in permission checks
+        if (trimmed.contains("isAdmin") || trimmed.contains("isOwner") || trimmed.contains("isMember")
+            || trimmed.contains("is_admin") || trimmed.contains("is_owner") || trimmed.contains("is_member")
+            || trimmed.contains("hasPermission") || trimmed.contains("has_permission")
+            || trimmed.contains("canEdit") || trimmed.contains("can_edit")
+            || trimmed.contains("hasRole") || trimmed.contains("has_role"))
+            && trimmed.contains("&&")
+        {
+            // Count how many permission-like terms appear
+            let perm_terms = ["isAdmin", "isOwner", "isMember", "isTeamAdmin", "isTeamOwner",
+                "is_admin", "is_owner", "is_member", "hasPermission", "has_permission",
+                "canEdit", "can_edit", "hasRole", "has_role", "isManager", "is_manager",
+                "isModerator", "is_moderator"];
+            let perm_count = perm_terms.iter().filter(|t| trimmed.contains(*t)).count();
+            if perm_count >= 2 {
+                findings.push(finding(
+                    "permission-and-or",
+                    "Multiple permission checks combined with `&&` — should this be `||`? (require ALL vs ANY)",
+                    0.6,
+                    Severity::High,
                     change,
                     trimmed,
                     line_num + 1,
@@ -298,6 +341,31 @@ fn check_python_patterns(
                 trimmed,
                 line_num + 1,
             ));
+        }
+
+        // magic-number-repetition: same literal number repeated many times
+        // (sign of unmaintainable test code)
+        if !trimmed.starts_with("#") && !trimmed.starts_with("def ") {
+            // Check for repeated numeric literals in function body
+            for num_pat in &["50,", "50)", "50 ", "100,", "100)", "100 ", "1000,", "1000)", "1000 "] {
+                if trimmed.contains(num_pat) {
+                    // Count occurrences in the full entity
+                    let literal = num_pat.trim_end_matches(|c: char| !c.is_ascii_digit());
+                    let count = after.matches(literal).count();
+                    if count >= 4 {
+                        findings.push(finding(
+                            "magic-number-repetition",
+                            &format!("Magic number `{}` repeated {} times — extract as named constant", literal, count),
+                            0.5,
+                            Severity::Low,
+                            change,
+                            trimmed,
+                            line_num + 1,
+                        ));
+                        break;
+                    }
+                }
+            }
         }
     }
 }
@@ -441,6 +509,26 @@ fn check_java_patterns(
                     "null-deref",
                     "Optional.get() without isPresent()/ifPresent() — will throw NoSuchElementException if empty",
                     0.85,
+                    Severity::High,
+                    change,
+                    trimmed,
+                    line_num + 1,
+                ));
+            }
+        }
+
+        // thread-no-join: Thread started but never joined — potential race condition
+        if trimmed.contains("new Thread(") || trimmed.contains(".start()")
+        {
+            // Look for .join() in the surrounding context
+            let full_context = collect_lines(after, 0, after.lines().count());
+            let has_thread = full_context.iter().any(|l| l.contains("Thread") || l.contains("Runnable"));
+            let has_join = full_context.iter().any(|l| l.contains(".join("));
+            if has_thread && !has_join {
+                findings.push(finding(
+                    "thread-no-join",
+                    "Thread started but never joined — may cause race conditions or missed exceptions",
+                    0.7,
                     Severity::High,
                     change,
                     trimmed,
