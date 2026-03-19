@@ -116,9 +116,7 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
     // and property/field declarations rarely contain logic bugs but inflate
     // the top-20 with noise. Discount them to prioritize functions/methods.
     let etype = review.entity_type.as_str();
-    if matches!(etype, "export" | "type" | "interface" | "property" | "field")
-        && review.change_type == ChangeType::Added
-    {
+    if matches!(etype, "export" | "type" | "interface" | "property" | "field") {
         score *= 0.6;
     }
 
