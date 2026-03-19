@@ -212,6 +212,29 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
+    // Phase 8: Per-file diversity constraint.
+    // If too many entities from the same file cluster at the top, discount
+    // the excess so entities from other files get a chance. This prevents
+    // a single high-blast-radius file from monopolizing all top-20 slots.
+    {
+        use std::collections::HashMap;
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        let max_per_file = 3;
+        let mut file_counts: HashMap<&str, usize> = HashMap::new();
+        let mut to_discount: Vec<usize> = Vec::new();
+        for (i, r) in reviews.iter().enumerate() {
+            let count = file_counts.entry(&r.file_path).or_insert(0);
+            *count += 1;
+            if *count > max_per_file {
+                to_discount.push(i);
+            }
+        }
+        for idx in to_discount {
+            reviews[idx].risk_score *= 0.7;
+            reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
+        }
+    }
+
     reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
     let total_ms = total_start.elapsed().as_millis() as u64;
