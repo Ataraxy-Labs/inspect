@@ -157,7 +157,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             let rank = entity_file_rank[idx];
             if rank > 0 {
                 // Progressive penalty: 0.90 for 2nd, 0.81 for 3rd, 0.73 for 4th, ...
-                let discount = 0.90_f64.powi(rank as i32);
+                let discount = 0.85_f64.powi(rank as i32);
                 review.risk_score *= discount;
                 review.risk_level = score_to_level(review.risk_score);
             }
@@ -243,25 +243,31 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
-    // Phase 8: Per-file diversity constraint.
-    // If too many entities from the same file cluster at the top, discount
-    // the excess so entities from other files get a chance. This prevents
-    // a single high-blast-radius file from monopolizing all top-20 slots.
+    // Phase 8: Per-file diversity constraint (progressive).
+    // Aggressively discount 2nd+ entities from the same file to ensure
+    // top-20 covers many distinct files. Uses progressive decay so 2nd
+    // entity from a high-signal file still has a chance, but 3rd+ are
+    // heavily penalized.
     {
         use std::collections::HashMap;
         reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-        let max_per_file = 1;
         let mut file_counts: HashMap<&str, usize> = HashMap::new();
-        let mut to_discount: Vec<usize> = Vec::new();
+        let mut discounts: Vec<(usize, f64)> = Vec::new();
         for (i, r) in reviews.iter().enumerate() {
             let count = file_counts.entry(&r.file_path).or_insert(0);
             *count += 1;
-            if *count > max_per_file {
-                to_discount.push(i);
+            if *count > 1 {
+                // Progressive: 2nd=0.30, 3rd=0.10, 4th+=0.05
+                let factor = match *count {
+                    2 => 0.30,
+                    3 => 0.10,
+                    _ => 0.05,
+                };
+                discounts.push((i, factor));
             }
         }
-        for idx in to_discount {
-            reviews[idx].risk_score *= 0.15;
+        for (idx, factor) in discounts {
+            reviews[idx].risk_score *= factor;
             reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
         }
     }
