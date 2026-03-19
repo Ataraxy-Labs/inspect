@@ -34,6 +34,7 @@ pub fn run_contract_checks(
             }
             ChangeType::Modified => {
                 check_signature_change(review, graph, &mut findings);
+                check_async_contract_regression(review, changes, graph, &mut findings);
                 check_type_change_propagation(review, graph, &changed_ids, &mut findings);
             }
             _ => {}
@@ -146,6 +147,87 @@ fn check_signature_change(
         start_line: review.start_line,
         end_line: review.end_line,
     });
+}
+
+/// Detect when a public callable appears to remove async/future-style contract cues
+/// while still having active callers. This can silently break call-site behavior.
+fn check_async_contract_regression(
+    review: &EntityReview,
+    changes: &[SemanticChange],
+    graph: &EntityGraph,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    if !review.is_public_api {
+        return;
+    }
+    if !matches!(review.entity_type.as_str(), "function" | "method" | "fn") {
+        return;
+    }
+
+    let Some(change) = changes.iter().find(|c| c.entity_id == review.entity_id) else {
+        return;
+    };
+    let (Some(before), Some(after)) = (change.before_content.as_deref(), change.after_content.as_deref()) else {
+        return;
+    };
+
+    let before_async = has_async_cue(before);
+    let after_async = has_async_cue(after);
+    if !before_async || after_async {
+        return;
+    }
+
+    let dependents = graph.get_dependents(&review.entity_id);
+    if dependents.is_empty() {
+        return;
+    }
+
+    findings.push(DetectorFinding {
+        rule_id: "async-contract-regression".to_string(),
+        message: format!(
+            "Public callable `{}` dropped async/future cues but still has {} caller(s)",
+            review.entity_name,
+            dependents.len()
+        ),
+        detector: DetectorKind::Contract,
+        confidence: 0.68,
+        severity: Severity::High,
+        entity_id: review.entity_id.clone(),
+        entity_name: review.entity_name.clone(),
+        file_path: review.file_path.clone(),
+        evidence: "before had async/future cue, after does not".to_string(),
+        start_line: review.start_line,
+        end_line: review.end_line,
+    });
+}
+
+fn has_async_cue(content: &str) -> bool {
+    let header = content.lines().take(4).collect::<Vec<_>>().join("\n").to_lowercase();
+    header.contains("async ")
+        || header.contains("future")
+        || header.contains("promise<")
+        || header.contains("completablefuture")
+        || header.contains("task<")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_async_cue;
+
+    #[test]
+    fn has_async_cue_detects_async_keyword() {
+        assert!(has_async_cue("pub async fn run() -> Result<()> {"));
+    }
+
+    #[test]
+    fn has_async_cue_detects_future_return() {
+        assert!(has_async_cue("public CompletableFuture<User> load() {"));
+    }
+
+    #[test]
+    fn has_async_cue_ignores_non_async_header() {
+        assert!(!has_async_cue("fn run() {\n  work();\n}"));
+    }
 }
 
 /// A type/struct/interface was modified but its dependents were NOT also changed.

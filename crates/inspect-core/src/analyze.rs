@@ -171,6 +171,34 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
+    // Group-aware score elevation: entities in the same untangle group
+    // as a high-scoring entity get a small boost. This captures "guilt by
+    // association" — if entity A is related to high-risk entity B, A
+    // is more likely to be involved in the same bug.
+    {
+        let mut group_max: HashMap<usize, f64> = HashMap::new();
+        for review in reviews.iter() {
+            if review.group_id > 0 {
+                let entry = group_max.entry(review.group_id).or_insert(0.0_f64);
+                if review.risk_score > *entry {
+                    *entry = review.risk_score;
+                }
+            }
+        }
+        for review in reviews.iter_mut() {
+            if review.group_id > 0 {
+                if let Some(&max_score) = group_max.get(&review.group_id) {
+                    if review.risk_score < max_score && max_score > 0.3 {
+                        let gap = max_score - review.risk_score;
+                        review.risk_score += gap * 0.15;
+                        review.risk_level = score_to_level(review.risk_score);
+                    }
+                }
+            }
+        }
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+    }
+
     let scoring_ms = scoring_start.elapsed().as_millis() as u64;
 
     // Phase 5: Run deterministic detectors

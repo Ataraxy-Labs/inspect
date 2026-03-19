@@ -29,6 +29,7 @@ pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
         check_null_return_introduced(change, before, after, &mut findings);
         check_error_path_changed(change, before, after, &mut findings);
         check_variable_near_miss(change, before, &before_lines, after, &after_lines, &mut findings);
+        check_boolean_polarity_flip(change, before, after, &mut findings);
     }
 
     findings
@@ -364,6 +365,64 @@ fn check_variable_near_miss(
                 line_num + 1,
             ));
         }
+    }
+}
+
+/// Detect if/while condition polarity flips where branch bodies remain unchanged.
+/// This is stricter than line-based negation checks and aims to reduce noise.
+fn check_boolean_polarity_flip(
+    change: &SemanticChange,
+    before: &str,
+    after: &str,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    let before_lines: Vec<&str> = before.lines().collect();
+    let after_lines: Vec<&str> = after.lines().collect();
+
+    for (i, pair) in before_lines.windows(2).enumerate() {
+        let b_head = pair[0].trim();
+        let b_next = pair[1].trim();
+
+        if !(b_head.starts_with("if ") || b_head.starts_with("if(") || b_head.starts_with("while ") || b_head.starts_with("while(")) {
+            continue;
+        }
+        if b_next != "{" {
+            continue;
+        }
+
+        if i + 1 >= after_lines.len() {
+            continue;
+        }
+        let a_head = after_lines[i].trim();
+        let a_next = after_lines[i + 1].trim();
+        if a_next != "{" {
+            continue;
+        }
+
+        let b_cond = extract_condition_expr(b_head);
+        let a_cond = extract_condition_expr(a_head);
+        let (Some(b_cond), Some(a_cond)) = (b_cond, a_cond) else {
+            continue;
+        };
+
+        if !are_boolean_negations(&b_cond, &a_cond) {
+            continue;
+        }
+
+        // Validate that the block body itself is unchanged nearby.
+        if !neighboring_block_body_unchanged(&before_lines, &after_lines, i + 1, 4) {
+            continue;
+        }
+
+        findings.push(make_finding(
+            "boolean-polarity-flip",
+            "Condition polarity flipped without branch-body changes — verify intent",
+            0.72,
+            Severity::High,
+            change,
+            a_head,
+            i + 1,
+        ));
     }
 }
 
@@ -703,6 +762,83 @@ fn jaro(a: &str, b: &str) -> f64 {
     (m / a_len as f64 + m / b_len as f64 + (m - t) / m) / 3.0
 }
 
+fn extract_condition_expr(head: &str) -> Option<String> {
+    let start = head.find('(')?;
+    let end = head.rfind(')')?;
+    if end <= start {
+        return None;
+    }
+    Some(head[start + 1..end].trim().to_string())
+}
+
+fn are_boolean_negations(a: &str, b: &str) -> bool {
+    normalized_condition(a) == negate_condition(&normalized_condition(b))
+        || normalized_condition(b) == negate_condition(&normalized_condition(a))
+}
+
+fn normalized_condition(cond: &str) -> String {
+    cond
+        .replace("==", " @@EQ@@ ")
+        .replace("!=", " @@NEQ@@ ")
+        .replace("<=", " @@LE@@ ")
+        .replace(">=", " @@GE@@ ")
+        .replace('<', " @@LT@@ ")
+        .replace('>', " @@GT@@ ")
+        .replace("&&", " @@AND@@ ")
+        .replace("||", " @@OR@@ ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn negate_condition(cond: &str) -> String {
+    if let Some(stripped) = cond.strip_prefix('!') {
+        return stripped.trim().to_string();
+    }
+
+    if let Some(swapped) = swap_cmp(cond, " @@EQ@@ ", " @@NEQ@@ ") {
+        return swapped;
+    }
+    if let Some(swapped) = swap_cmp(cond, " @@LT@@ ", " @@GE@@ ") {
+        return swapped;
+    }
+    if let Some(swapped) = swap_cmp(cond, " @@GT@@ ", " @@LE@@ ") {
+        return swapped;
+    }
+
+    format!("!{}", cond)
+}
+
+fn swap_cmp(cond: &str, a: &str, b: &str) -> Option<String> {
+    if cond.contains(a) {
+        Some(cond.replace(a, b))
+    } else if cond.contains(b) {
+        Some(cond.replace(b, a))
+    } else {
+        None
+    }
+}
+
+fn neighboring_block_body_unchanged(before_lines: &[&str], after_lines: &[&str], brace_line: usize, max_lines: usize) -> bool {
+    let mut checked = 0usize;
+    for offset in 1..=max_lines {
+        let i = brace_line + offset;
+        if i >= before_lines.len() || i >= after_lines.len() {
+            break;
+        }
+        let b = before_lines[i].trim();
+        let a = after_lines[i].trim();
+        if b == "}" || a == "}" {
+            break;
+        }
+        checked += 1;
+        if b != a {
+            return false;
+        }
+    }
+    checked > 0
+}
+
 #[cfg(test)]
 mod tests {
     use sem_core::model::change::{ChangeType, SemanticChange};
@@ -832,6 +968,32 @@ mod tests {
         assert!(
             !findings.iter().any(|f| f.rule_id == "variable-near-miss"),
             "Should not flag consistent rename: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_boolean_polarity_flip_detected() {
+        let before = "if (count == 0)\n{\n    run();\n}";
+        let after = "if (count != 0)\n{\n    run();\n}";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "boolean-polarity-flip"),
+            "Should detect boolean polarity flip: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_boolean_polarity_flip_not_flagged_when_body_changes() {
+        let before = "if (count == 0)\n{\n    run();\n}";
+        let after = "if (count != 0)\n{\n    stop();\n}";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "boolean-polarity-flip"),
+            "Should not detect polarity flip when body also changed: {:?}",
             findings
         );
     }
