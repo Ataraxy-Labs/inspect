@@ -31,6 +31,7 @@ pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
         check_variable_near_miss(change, before, &before_lines, after, &after_lines, &mut findings);
         check_argument_order_swap(change, &before_lines, &after_lines, &mut findings);
         check_boolean_polarity_flip(change, before, after, &mut findings);
+        check_boolean_literal_flip(change, &before_lines, &after_lines, &mut findings);
     }
 
     findings
@@ -491,6 +492,65 @@ fn check_argument_order_swap(
     }
 }
 
+/// Detect explicit boolean literal flips (`true` <-> `false`) on otherwise identical lines.
+/// This catches accidental polarity changes outside of condition expressions.
+fn check_boolean_literal_flip(
+    change: &SemanticChange,
+    before_lines: &[&str],
+    after_lines: &[&str],
+    findings: &mut Vec<DetectorFinding>,
+) {
+    let paired = before_lines.len().min(after_lines.len());
+    for line_num in 0..paired {
+        let before_line = before_lines[line_num].trim();
+        let after_line = after_lines[line_num].trim();
+        if before_line.is_empty() || after_line.is_empty() || before_line == after_line {
+            continue;
+        }
+
+        if before_line.starts_with("//")
+            || after_line.starts_with("//")
+            || before_line.starts_with('*')
+            || after_line.starts_with('*')
+        {
+            continue;
+        }
+
+        let forward = replace_single_boolean_word(before_line, "true", "@@BOOL@@");
+        let reverse = replace_single_boolean_word(after_line, "false", "@@BOOL@@");
+        if let (Some(a), Some(b)) = (forward, reverse) {
+            if a == b {
+                findings.push(make_finding(
+                    "boolean-literal-flip",
+                    "Boolean literal changed from `true` to `false` — verify logic intent",
+                    0.62,
+                    Severity::Medium,
+                    change,
+                    after_line,
+                    line_num + 1,
+                ));
+                continue;
+            }
+        }
+
+        let forward = replace_single_boolean_word(before_line, "false", "@@BOOL@@");
+        let reverse = replace_single_boolean_word(after_line, "true", "@@BOOL@@");
+        if let (Some(a), Some(b)) = (forward, reverse) {
+            if a == b {
+                findings.push(make_finding(
+                    "boolean-literal-flip",
+                    "Boolean literal changed from `false` to `true` — verify logic intent",
+                    0.62,
+                    Severity::Medium,
+                    change,
+                    after_line,
+                    line_num + 1,
+                ));
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -896,6 +956,46 @@ fn detect_single_swap(before: &[String], after: &[String]) -> Option<(usize, usi
     }
 }
 
+fn replace_single_boolean_word(line: &str, needle: &str, replacement: &str) -> Option<String> {
+    let mut out = String::with_capacity(line.len() + replacement.len());
+    let mut replaced = false;
+    let mut i = 0usize;
+
+    while i < line.len() {
+        let ch = line[i..].chars().next()?;
+        let ch_len = ch.len_utf8();
+
+        if is_identifier_char(ch) {
+            let start = i;
+            i += ch_len;
+            while i < line.len() {
+                let next = line[i..].chars().next()?;
+                if is_identifier_char(next) {
+                    i += next.len_utf8();
+                } else {
+                    break;
+                }
+            }
+
+            let word = &line[start..i];
+            if word == needle {
+                if replaced {
+                    return None;
+                }
+                out.push_str(replacement);
+                replaced = true;
+            } else {
+                out.push_str(word);
+            }
+        } else {
+            out.push(ch);
+            i += ch_len;
+        }
+    }
+
+    if replaced { Some(out) } else { None }
+}
+
 fn levenshtein(a: &str, b: &str) -> usize {
     if a == b {
         return 0;
@@ -1262,6 +1362,32 @@ mod tests {
         assert!(
             !findings.iter().any(|f| f.rule_id == "argument-order-swap"),
             "Should not detect argument-order swap for named args: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_boolean_literal_flip_detected_true_to_false() {
+        let before = "config.enabled = true;";
+        let after = "config.enabled = false;";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "boolean-literal-flip"),
+            "Should detect true->false boolean literal flip: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_boolean_literal_flip_not_flagged_for_identifier_change() {
+        let before = "let trueValue = compute();";
+        let after = "let falseValue = compute();";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "boolean-literal-flip"),
+            "Should not detect boolean literal flip for identifier rename: {:?}",
             findings
         );
     }

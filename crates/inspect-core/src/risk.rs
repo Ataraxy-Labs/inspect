@@ -109,7 +109,7 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
     // we can't extract named entities (CSS, config, lockfiles) are low-value
     // for review — penalize to make room for named entities
     if review.entity_name.starts_with("lines ") {
-        score *= 0.5;
+        score *= 0.6;
     }
 
     // Low-bug-density entity types: re-exports, type aliases, interfaces,
