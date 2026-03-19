@@ -154,20 +154,21 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
 
     // Phase 6: Boost entity scores based on detector findings
     // Entities with concrete suspicious patterns (negation flips, removed guards,
-    // etc.) get a score bump, helping differentiate them from same-file peers.
+    // etc.) get a significant score bump. This is the primary mechanism for
+    // differentiating entities that look risky from those that ARE risky.
     if !findings.is_empty() {
         use std::collections::HashMap as FindingsMap;
         let mut finding_boost: FindingsMap<&str, f64> = FindingsMap::new();
         for f in &findings {
             let severity_bonus = match f.severity {
-                crate::detect::Severity::Critical => 0.10,
-                crate::detect::Severity::High => 0.08,
-                crate::detect::Severity::Medium => 0.05,
-                crate::detect::Severity::Low => 0.03,
+                crate::detect::Severity::Critical => 0.15,
+                crate::detect::Severity::High => 0.12,
+                crate::detect::Severity::Medium => 0.07,
+                crate::detect::Severity::Low => 0.04,
             };
             let boost = severity_bonus * f.confidence;
             let entry = finding_boost.entry(f.entity_id.as_str()).or_insert(0.0);
-            *entry = (*entry + boost).min(0.15); // cap total boost per entity
+            *entry = (*entry + boost).min(0.25); // higher cap for more discrimination
         }
         for review in &mut reviews {
             if let Some(&boost) = finding_boost.get(review.entity_id.as_str()) {
