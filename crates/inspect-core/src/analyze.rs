@@ -150,7 +150,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         for review in reviews.iter_mut() {
             if let Some(&top_score) = top_per_file.get(&review.file_path) {
                 if review.risk_score < top_score {
-                    review.risk_score *= 0.95;
+                    review.risk_score *= 0.90;
                     review.risk_level = score_to_level(review.risk_score);
                 }
             }
