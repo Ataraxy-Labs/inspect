@@ -34,6 +34,7 @@ pub fn run_contract_checks(
             }
             ChangeType::Modified => {
                 check_signature_change(review, graph, &mut findings);
+                check_arity_change_with_callers(review, changes, graph, &mut findings);
                 check_async_contract_regression(review, changes, graph, &mut findings);
                 check_type_change_propagation(review, graph, &changed_ids, &mut findings);
             }
@@ -149,6 +150,62 @@ fn check_signature_change(
     });
 }
 
+/// Detect parameter-count changes on public callables with active dependents.
+fn check_arity_change_with_callers(
+    review: &EntityReview,
+    changes: &[SemanticChange],
+    graph: &EntityGraph,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    if !review.is_public_api {
+        return;
+    }
+    if !matches!(review.entity_type.as_str(), "function" | "method" | "fn") {
+        return;
+    }
+
+    let Some(change) = changes.iter().find(|c| c.entity_id == review.entity_id) else {
+        return;
+    };
+    let (Some(before), Some(after)) = (change.before_content.as_deref(), change.after_content.as_deref()) else {
+        return;
+    };
+
+    let before_arity = estimate_param_count(before);
+    let after_arity = estimate_param_count(after);
+    let (Some(before_arity), Some(after_arity)) = (before_arity, after_arity) else {
+        return;
+    };
+    if before_arity == after_arity {
+        return;
+    }
+
+    let dependents = graph.get_dependents(&review.entity_id);
+    if dependents.is_empty() {
+        return;
+    }
+
+    findings.push(DetectorFinding {
+        rule_id: "arity-change-with-callers".to_string(),
+        message: format!(
+            "Public callable `{}` changed arity ({} -> {}) with {} caller(s)",
+            review.entity_name,
+            before_arity,
+            after_arity,
+            dependents.len()
+        ),
+        detector: DetectorKind::Contract,
+        confidence: 0.74,
+        severity: Severity::High,
+        entity_id: review.entity_id.clone(),
+        entity_name: review.entity_name.clone(),
+        file_path: review.file_path.clone(),
+        evidence: format!("arity {} -> {}", before_arity, after_arity),
+        start_line: review.start_line,
+        end_line: review.end_line,
+    });
+}
+
 /// Detect when a public callable appears to remove async/future-style contract cues
 /// while still having active callers. This can silently break call-site behavior.
 fn check_async_contract_regression(
@@ -210,9 +267,29 @@ fn has_async_cue(content: &str) -> bool {
         || header.contains("task<")
 }
 
+fn estimate_param_count(content: &str) -> Option<usize> {
+    let head = content.lines().take(4).collect::<Vec<_>>().join(" ");
+    let start = head.find('(')?;
+    let end = head[start..].find(')')? + start;
+    if end <= start {
+        return None;
+    }
+    let params = head[start + 1..end].trim();
+    if params.is_empty() {
+        return Some(0);
+    }
+    Some(
+        params
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty() && *p != "self" && *p != "&self" && *p != "this")
+            .count(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::has_async_cue;
+    use super::{estimate_param_count, has_async_cue};
 
     #[test]
     fn has_async_cue_detects_async_keyword() {
@@ -227,6 +304,17 @@ mod tests {
     #[test]
     fn has_async_cue_ignores_non_async_header() {
         assert!(!has_async_cue("fn run() {\n  work();\n}"));
+    }
+
+    #[test]
+    fn estimate_param_count_works_for_simple_function() {
+        assert_eq!(estimate_param_count("fn run(a: i32, b: i32) -> i32 {"), Some(2));
+    }
+
+    #[test]
+    fn estimate_param_count_ignores_self_and_this() {
+        assert_eq!(estimate_param_count("pub fn run(&self, value: i32) {"), Some(1));
+        assert_eq!(estimate_param_count("public void run(this, a, b) {"), Some(2));
     }
 }
 

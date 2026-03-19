@@ -102,7 +102,13 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
 
     // Test-file penalty: mild — test code has real bugs too
     if is_test_file(&review.file_path) {
-        score *= 0.7;
+        // Most test entities are lower-priority, but a subset are real
+        // integration risk signals (deleted public test APIs, or very
+        // high-dependency orchestration tests).
+        let high_impact_test = (review.change_type == ChangeType::Deleted && review.is_public_api)
+            || review.dependency_count >= 120
+            || (review.dependency_count >= 60 && review.structural_change == Some(true));
+        score *= if high_impact_test { 0.9 } else { 0.7 };
     }
 
     // Chunk penalty: unnamed chunk entities ("lines 81-100") from files where

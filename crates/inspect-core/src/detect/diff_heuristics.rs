@@ -32,6 +32,7 @@ pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
         check_argument_order_swap(change, &before_lines, &after_lines, &mut findings);
         check_boolean_polarity_flip(change, before, after, &mut findings);
         check_boolean_literal_flip(change, &before_lines, &after_lines, &mut findings);
+        check_await_removed(change, &before_lines, &after_lines, &mut findings);
     }
 
     findings
@@ -551,6 +552,56 @@ fn check_boolean_literal_flip(
     }
 }
 
+/// Detect cases where `await` was removed from an otherwise equivalent line.
+/// This can silently change behavior from sequential to fire-and-forget.
+fn check_await_removed(
+    change: &SemanticChange,
+    before_lines: &[&str],
+    after_lines: &[&str],
+    findings: &mut Vec<DetectorFinding>,
+) {
+    let paired = before_lines.len().min(after_lines.len());
+    for line_num in 0..paired {
+        let before_line = before_lines[line_num].trim();
+        let after_line = after_lines[line_num].trim();
+        if before_line.is_empty() || after_line.is_empty() || before_line == after_line {
+            continue;
+        }
+
+        if before_line.starts_with("//")
+            || after_line.starts_with("//")
+            || before_line.starts_with('*')
+            || after_line.starts_with('*')
+        {
+            continue;
+        }
+
+        if count_identifier_in_line(before_line, "await") != 1
+            || count_identifier_in_line(after_line, "await") != 0
+        {
+            continue;
+        }
+
+        let Some(before_without_await) = remove_single_identifier(before_line, "await") else {
+            continue;
+        };
+
+        if normalize_inline_whitespace(before_without_await.trim())
+            == normalize_inline_whitespace(after_line)
+        {
+            findings.push(make_finding(
+                "await-removed",
+                "`await` removed from call-like expression — verify async sequencing and error propagation",
+                0.66,
+                Severity::High,
+                change,
+                after_line,
+                line_num + 1,
+            ));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -730,6 +781,10 @@ fn replace_single_identifier(line: &str, needle: &str, replacement: &str) -> Opt
     }
 
     if replaced { Some(out) } else { None }
+}
+
+fn remove_single_identifier(line: &str, needle: &str) -> Option<String> {
+    replace_single_identifier(line, needle, "")
 }
 
 fn count_identifier_occurrences(content: &str, ident: &str) -> usize {
@@ -1388,6 +1443,45 @@ mod tests {
         assert!(
             !findings.iter().any(|f| f.rule_id == "boolean-literal-flip"),
             "Should not detect boolean literal flip for identifier rename: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_await_removed_detected() {
+        let before = "const user = await fetchUser(id);";
+        let after = "const user = fetchUser(id);";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "await-removed"),
+            "Should detect removed await on equivalent line: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_await_removed_not_flagged_for_identifier_rename() {
+        let before = "let awaiting = task.awaiting();";
+        let after = "let waiting = task.awaiting();";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "await-removed"),
+            "Should not detect await removal inside identifier rename: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_await_removed_not_flagged_when_await_added() {
+        let before = "save(value);";
+        let after = "await save(value);";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "await-removed"),
+            "Should not detect await removal when await was added: {:?}",
             findings
         );
     }
