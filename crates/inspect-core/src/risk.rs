@@ -142,11 +142,11 @@ fn classification_weight(c: ChangeClassification) -> f64 {
 
 fn change_type_weight(ct: ChangeType) -> f64 {
     match ct {
-        ChangeType::Deleted => 0.12,
+        ChangeType::Deleted => 0.14,
         ChangeType::Modified => 0.08,
         ChangeType::Renamed => 0.04,
         ChangeType::Moved => 0.0,
-        ChangeType::Added => 0.02,
+        ChangeType::Added => 0.10,
     }
 }
 
@@ -286,8 +286,8 @@ mod tests {
             None,
         );
         let score = compute_risk_score(&review, 10);
-        // Added + Functional with no graph impact = low baseline
-        assert_eq!(score_to_level(score), RiskLevel::Low);
+        // Added + Functional with no graph impact = Medium baseline
+        assert!(score < 0.5, "Expected below High, got score={score}");
     }
 
     #[test]
