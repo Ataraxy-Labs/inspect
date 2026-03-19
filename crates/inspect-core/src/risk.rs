@@ -51,8 +51,14 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
     // Classification weight (low baseline: 0.0 to 0.15)
     score += classification_weight(review.classification);
 
-    // Change type weight (0.0 to 0.1)
+    // Change type weight (0.0 to 0.14)
     score += change_type_weight(review.change_type);
+
+    // Structural change bonus: confirmed logic changes rank above unknowns
+    // This differentiates entities within the same file
+    if review.structural_change == Some(true) {
+        score += 0.05;
+    }
 
     // Public API boost
     if review.is_public_api {
@@ -97,6 +103,13 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
     // Test-file penalty: mild — test code has real bugs too
     if is_test_file(&review.file_path) {
         score *= 0.7;
+    }
+
+    // Chunk penalty: unnamed chunk entities ("lines 81-100") from files where
+    // we can't extract named entities (CSS, config, lockfiles) are low-value
+    // for review — penalize to make room for named entities
+    if review.entity_name.starts_with("lines ") {
+        score *= 0.5;
     }
 
     score.min(1.0)
