@@ -254,7 +254,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             }
         }
         for idx in to_discount {
-            reviews[idx].risk_score *= 0.3;
+            reviews[idx].risk_score *= 0.2;
             reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
         }
     }
