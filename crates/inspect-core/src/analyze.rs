@@ -385,8 +385,54 @@ fn load_or_build_graph(
     graph
 }
 
-/// List all tracked source files in the repo via `git ls-files`.
+/// Source file extensions to include in analysis.
+const SOURCE_EXTENSIONS: &[&str] = &[
+    "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "c", "cpp", "rb", "cs", "php",
+];
+
+/// List all tracked source files in the repo using fff-search's FilePicker.
+/// Falls back to `git ls-files` if the picker fails to initialize.
 fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
+    use fff_search::file_picker::FilePicker;
+    use fff_search::{FFFMode, SharedPicker, SharedFrecency};
+
+    let shared_picker: SharedPicker = Default::default();
+    let shared_frecency: SharedFrecency = Default::default();
+
+    match FilePicker::new_with_shared_state(
+        repo_path.to_string_lossy().into_owned(),
+        false,
+        FFFMode::Ai,
+        shared_picker.clone(),
+        shared_frecency,
+    ) {
+        Ok(_) => {
+            FilePicker::wait_for_scan(&shared_picker);
+
+            let picker_guard = shared_picker.read().unwrap();
+            let picker = picker_guard.as_ref().ok_or_else(|| {
+                AnalyzeError::Git("FilePicker scan produced no results".into())
+            })?;
+
+            let files: Vec<String> = picker
+                .get_files()
+                .iter()
+                .filter(|f| {
+                    let ext = f.relative_path.rsplit('.').next().unwrap_or("");
+                    SOURCE_EXTENSIONS.contains(&ext)
+                })
+                .filter(|f| !f.is_binary)
+                .map(|f| f.relative_path.clone())
+                .collect();
+
+            Ok(files)
+        }
+        Err(_) => list_source_files_fallback(repo_path),
+    }
+}
+
+/// Fallback: list source files via `git ls-files` if fff-search is unavailable.
+fn list_source_files_fallback(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
     let output = std::process::Command::new("git")
         .args(["ls-files"])
         .current_dir(repo_path)
@@ -401,20 +447,8 @@ fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
     let files: Vec<String> = stdout
         .lines()
         .filter(|f| {
-            let f = f.to_lowercase();
-            f.ends_with(".rs")
-                || f.ends_with(".ts")
-                || f.ends_with(".tsx")
-                || f.ends_with(".js")
-                || f.ends_with(".jsx")
-                || f.ends_with(".py")
-                || f.ends_with(".go")
-                || f.ends_with(".java")
-                || f.ends_with(".c")
-                || f.ends_with(".cpp")
-                || f.ends_with(".rb")
-                || f.ends_with(".cs")
-                || f.ends_with(".php")
+            let ext = f.rsplit('.').next().unwrap_or("");
+            SOURCE_EXTENSIONS.contains(&ext)
         })
         .map(|s| s.to_string())
         .collect();

@@ -198,6 +198,21 @@ impl InspectServer {
                         .map(|fp| r.file_path.ends_with(fp))
                         .unwrap_or(true)
             })
+            .or_else(|| {
+                // Fuzzy fallback: try matching entity name approximately
+                let candidates: Vec<(String, String)> = result
+                    .entity_reviews
+                    .iter()
+                    .map(|r| (r.entity_name.clone(), r.file_path.clone()))
+                    .collect();
+                search::fuzzy_find_entity(&params.entity_name, candidates.iter())
+                    .and_then(|(name, file)| {
+                        result
+                            .entity_reviews
+                            .iter()
+                            .find(|r| r.entity_name == name && r.file_path == file)
+                    })
+            })
             .ok_or_else(|| {
                 internal_err(format!("Entity '{}' not found in changes", params.entity_name))
             })?;
