@@ -1,0 +1,3277 @@
+[
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/8087",
+    "repo": "cal_dot_com",
+    "pr_number": 8087,
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "Consider adding try-catch around the await to handle import failures gracefully",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/app-store/index.ts",
+    "anchor_entity": "appStore",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/8087",
+    "repo": "cal_dot_com",
+    "pr_number": 8087,
+    "bug_index": 1,
+    "severity": "Critical",
+    "comment": "The code uses forEach with async callbacks, which causes asynchronous operations (e.g., calendar/video event deletions, payment refunds) to run concurrently without being awaited. This 'fire-and-forget' behavior leads to unhandled promise rejections, race conditions, and incomplete cleanup, as surro",
+    "extracted_ids": [
+      "forEach",
+      "operations"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/app-store/vital/lib/reschedule.ts",
+    "anchor_entity": "Reschedule",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "forEach"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10600",
+    "repo": "cal_dot_com",
+    "pr_number": 10600,
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "The exported function TwoFactor handles backup codes and is in BackupCode.tsx. Inconsistent naming.",
+    "extracted_ids": [
+      "BackupCode",
+      "TwoFactor",
+      "tsx"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "backupCodes",
+        "file_path": "apps/web/pages/api/auth/two-factor/totp/disable.ts"
+      },
+      {
+        "entity_name": "backupCodes",
+        "file_path": "apps/web/pages/api/auth/two-factor/totp/setup.ts"
+      },
+      {
+        "entity_name": "TwoFactor",
+        "file_path": "apps/web/components/auth/BackupCode.tsx"
+      },
+      {
+        "entity_name": "TwoFactorFooter",
+        "file_path": "apps/web/pages/auth/login.tsx"
+      },
+      {
+        "entity_name": "DisableTwoFactorValues",
+        "file_path": "apps/web/components/settings/DisableTwoFactorModal.tsx"
+      }
+    ],
+    "matched_files": [
+      "apps/web/components/auth/BackupCode.tsx",
+      "apps/web/components/auth/TwoFactor.tsx",
+      "apps/web/components/settings/DisableTwoFactorModal.tsx",
+      "apps/web/components/settings/EnableTwoFactorModal.tsx",
+      "apps/web/components/settings/TwoFactorAuthAPI.ts"
+    ],
+    "anchor_file": "apps/web/pages/api/auth/two-factor/totp/disable.ts",
+    "anchor_entity": "backupCodes",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10600",
+    "repo": "cal_dot_com",
+    "pr_number": 10600,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "Error message mentions 'backup code login' but this is a disable endpoint, not login",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "apps/web/pages/api/auth/two-factor/totp/disable.ts",
+    "anchor_entity": "handler",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "backup code login"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10600",
+    "repo": "cal_dot_com",
+    "pr_number": 10600,
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "Backup code validation is case-sensitive due to the use of indexOf(). This causes validation to fail if a user enters uppercase hex characters, as backup codes should be case-insensitive for a better user experience.",
+    "extracted_ids": [
+      "indexOf"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "apps/web/pages/api/auth/two-factor/totp/disable.ts",
+    "anchor_entity": "backupCodes",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "indexOf"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10600",
+    "repo": "cal_dot_com",
+    "pr_number": 10600,
+    "bug_index": 3,
+    "severity": "High",
+    "comment": "Because backupCodes are decrypted and mutated in memory before being written back, two concurrent login requests using the same backupCode could both pass this check and update, so a single backup code may effectively be accepted more than once if used concurrently, weakening the intended one-time-u",
+    "extracted_ids": [
+      "backupCode",
+      "backupCodes"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "backupCodes",
+        "file_path": "apps/web/pages/api/auth/two-factor/totp/disable.ts"
+      },
+      {
+        "entity_name": "backupCodes",
+        "file_path": "apps/web/pages/api/auth/two-factor/totp/setup.ts"
+      }
+    ],
+    "matched_files": [
+      "apps/web/components/auth/BackupCode.tsx",
+      "apps/web/pages/api/auth/two-factor/totp/disable.ts",
+      "apps/web/pages/api/auth/two-factor/totp/setup.ts"
+    ],
+    "anchor_file": "apps/web/pages/api/auth/two-factor/totp/disable.ts",
+    "anchor_entity": "backupCodes",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10967",
+    "repo": "cal_dot_com",
+    "pr_number": 10967,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "Potential null reference if mainHostDestinationCalendar is undefined if evt.destinationCalendar is null or an empty array ",
+    "extracted_ids": [
+      "destinationCalendar",
+      "mainHostDestinationCalendar"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/app-store/googlecalendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/app-store/larkcalendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/app-store/office365calendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/core/EventManager.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/lib/CalendarService.ts"
+      }
+    ],
+    "matched_files": [
+      "apps/web/pages/api/cron/bookingReminder.ts",
+      "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "packages/app-store/larkcalendar/lib/CalendarService.ts",
+      "packages/app-store/office365calendar/lib/CalendarService.ts",
+      "packages/core/EventManager.ts"
+    ],
+    "anchor_file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+    "anchor_entity": "[mainHostDestinationCalendar]",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10967",
+    "repo": "cal_dot_com",
+    "pr_number": 10967,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "The optional chaining on mainHostDestinationCalendar?.integration is redundant since you already check mainHostDestinationCalendar in the ternary condition.",
+    "extracted_ids": [
+      "integration",
+      "mainHostDestinationCalendar"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/app-store/googlecalendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/app-store/larkcalendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/app-store/office365calendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/core/EventManager.ts"
+      },
+      {
+        "entity_name": "[mainHostDestinationCalendar]",
+        "file_path": "packages/lib/CalendarService.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "packages/app-store/larkcalendar/lib/CalendarService.ts",
+      "packages/app-store/office365calendar/lib/CalendarService.ts",
+      "packages/core/EventManager.ts",
+      "packages/emails/src/templates/BrokenIntegrationEmail.tsx"
+    ],
+    "anchor_file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+    "anchor_entity": "[mainHostDestinationCalendar]",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10967",
+    "repo": "cal_dot_com",
+    "pr_number": 10967,
+    "bug_index": 2,
+    "severity": "High",
+    "comment": "Logic error: when externalCalendarId is provided, you're searching for a calendar where externalId === externalCalendarId, but this will always fail since you're looking for a calendar that matches itself. Should likely find by credentialId or use different logic.",
+    "extracted_ids": [
+      "credentialId",
+      "externalCalendarId",
+      "externalId"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "{ uid: bookingRefUid, externalCalendarId: bookingExternalCalendarId }",
+        "file_path": "packages/core/EventManager.ts"
+      },
+      {
+        "entity_name": "{ credentialId, uid, externalCalendarId }",
+        "file_path": "packages/features/bookings/lib/handleCancelBooking.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/core/EventManager.ts",
+      "packages/features/bookings/lib/handleCancelBooking.ts"
+    ],
+    "anchor_file": "packages/core/EventManager.ts",
+    "anchor_entity": "{ uid: bookingRefUid, externalCalendarId: bookingExternalCalendarId }",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10967",
+    "repo": "cal_dot_com",
+    "pr_number": 10967,
+    "bug_index": 3,
+    "severity": "Medium",
+    "comment": "Logic inversion in organization creation: The slug property is now conditionally set when IS_TEAM_BILLING_ENABLED is true, instead of when it's false as originally intended. This change, combined with requestedSlug still being set when IS_TEAM_BILLING_ENABLED is true, results in both properties bein",
+    "extracted_ids": [
+      "IS_TEAM_BILLING_ENABLED",
+      "requestedSlug"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/trpc/server/routers/viewer/organizations/create.handler.ts",
+    "anchor_entity": "createHandler",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "requestedSlug"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/10967",
+    "repo": "cal_dot_com",
+    "pr_number": 10967,
+    "bug_index": 4,
+    "severity": "Low",
+    "comment": "The Calendar interface now requires createEvent(event, credentialId), but some implementations (e.g., Lark/Office365) still declare createEvent(event) only\u2014this breaks the interface contract (also applies to other locations in the PR).",
+    "extracted_ids": [
+      "contract",
+      "createEvent",
+      "credentialId",
+      "implementations"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "{ credentialId, uid, externalCalendarId }",
+        "file_path": "packages/features/bookings/lib/handleCancelBooking.ts"
+      },
+      {
+        "entity_name": "createEvent",
+        "file_path": "packages/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "createEvent",
+        "file_path": "packages/app-store/googlecalendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "createEvent",
+        "file_path": "packages/app-store/larkcalendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "createEvent",
+        "file_path": "packages/app-store/office365calendar/lib/CalendarService.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "packages/app-store/larkcalendar/lib/CalendarService.ts",
+      "packages/app-store/office365calendar/lib/CalendarService.ts",
+      "packages/core/CalendarManager.ts",
+      "packages/features/bookings/lib/handleCancelBooking.ts"
+    ],
+    "anchor_file": "packages/features/bookings/lib/handleCancelBooking.ts",
+    "anchor_entity": "{ credentialId, uid, externalCalendarId }",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/22345",
+    "repo": "cal_dot_com",
+    "pr_number": 22345,
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "In getBaseConditions(), the else if (filterConditions) and final else branches are unreachable. This is because getAuthorizationConditions() always returns a non-null Prisma.Sql object, making authConditions always truthy, which means only the first two if/else if conditions are ever evaluated.",
+    "extracted_ids": [
+      "Sql",
+      "authConditions",
+      "filterConditions",
+      "getAuthorizationConditions",
+      "getBaseConditions"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "getFilterConditions",
+        "file_path": "packages/lib/server/service/insightsBooking.ts"
+      },
+      {
+        "entity_name": "buildFilterConditions",
+        "file_path": "packages/lib/server/service/insightsBooking.ts"
+      },
+      {
+        "entity_name": "cachedFilterConditions",
+        "file_path": "packages/lib/server/service/insightsBooking.ts"
+      },
+      {
+        "entity_name": "filterConditions",
+        "file_path": "packages/lib/server/service/insightsBooking.ts"
+      },
+      {
+        "entity_name": "cachedAuthConditions",
+        "file_path": "packages/lib/server/service/insightsBooking.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/lib/server/service/insightsBooking.ts"
+    ],
+    "anchor_file": "packages/lib/server/service/insightsBooking.ts",
+    "anchor_entity": "getFilterConditions",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/22345",
+    "repo": "cal_dot_com",
+    "pr_number": 22345,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "Fetching userIdsFromOrg only when teamsFromOrg.length > 0 can exclude org-level members for orgs without child teams; consider deriving from teamIds (which includes orgId) or removing the guard so org-only orgs still include member user bookings.",
+    "extracted_ids": [
+      "length",
+      "orgId",
+      "teamIds",
+      "teamsFromOrg",
+      "userIdsFromOrg"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/lib/server/service/insightsBooking.ts",
+    "anchor_entity": "buildOrgAuthorizationCondition",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "length",
+      "teamsFromOrg",
+      "orgId",
+      "userIdsFromOrg",
+      "teamIds"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/7232",
+    "repo": "cal_dot_com",
+    "pr_number": 7232,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Asynchronous functions deleteScheduledEmailReminder and deleteScheduledSMSReminder are called without await inside forEach loops. This occurs during booking rescheduling/cancellation, and workflow/workflow step deletion/updates. Consequently, scheduled workflow reminders may not be reliably cancelle",
+    "extracted_ids": [
+      "deleteScheduledEmailReminder",
+      "forEach"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "deleteScheduledEmailReminder",
+        "file_path": "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts"
+    ],
+    "anchor_file": "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts",
+    "anchor_entity": "deleteScheduledEmailReminder",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/7232",
+    "repo": "cal_dot_com",
+    "pr_number": 7232,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "When immediateDelete is true, the deleteScheduledEmailReminder function cancels the SendGrid email but fails to delete the corresponding WorkflowReminder record from the database. This creates orphaned database entries and is inconsistent with the immediateDelete: false path, which marks the record ",
+    "extracted_ids": [
+      "API",
+      "DELETE",
+      "SendGrid",
+      "WorkflowReminder",
+      "deleteScheduledEmailReminder",
+      "immediateDelete"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "deleteScheduledEmailReminder",
+        "file_path": "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts"
+      },
+      {
+        "entity_name": "workflowRemindersToDelete",
+        "file_path": "packages/features/ee/workflows/api/scheduleEmailReminders.ts"
+      },
+      {
+        "entity_name": "workflowReminderToDelete",
+        "file_path": "packages/features/ee/workflows/api/scheduleEmailReminders.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/features/ee/workflows/api/scheduleEmailReminders.ts",
+      "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts"
+    ],
+    "anchor_file": "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts",
+    "anchor_entity": "deleteScheduledEmailReminder",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/8330",
+    "repo": "cal_dot_com",
+    "pr_number": 8330,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Incorrect end time calculation using slotStartTime instead of slotEndTime",
+    "extracted_ids": [
+      "slotEndTime",
+      "slotStartTime"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/trpc/server/routers/viewer/slots.ts",
+    "anchor_entity": "getSchedule",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "slotStartTime",
+      "slotEndTime"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/8330",
+    "repo": "cal_dot_com",
+    "pr_number": 8330,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "Using === for dayjs object comparison will always return false as it compares object references, not values. Use .isSame() method instead: dayjs(date.start).add(utcOffset, 'minutes').isSame(dayjs(date.end).add(utcOffset, minutes))",
+    "extracted_ids": [
+      "dayjs",
+      "end",
+      "isSame",
+      "start",
+      "utcOffset"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/trpc/server/routers/viewer/slots.ts",
+    "anchor_entity": "dateOverrides",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "dayjs",
+      "isSame",
+      "minutes",
+      "utcOffset",
+      "start"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/11059",
+    "repo": "cal_dot_com",
+    "pr_number": 11059,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "The parseRefreshTokenResponse function incorrectly sets refresh_token to the hardcoded string 'refresh_token' when it's missing from the OAuth refresh token response. This invalidates the token, breaking subsequent token refreshes and causing authentication failures.",
+    "extracted_ids": [
+      "parseRefreshTokenResponse"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "parseRefreshTokenResponse",
+        "file_path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+    ],
+    "anchor_file": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+    "anchor_entity": "parseRefreshTokenResponse",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/11059",
+    "repo": "cal_dot_com",
+    "pr_number": 11059,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "Invalid Zod schema syntax. Computed property keys like [z.string().toString()] are not valid in Zod object schemas and will cause runtime errors. ",
+    "extracted_ids": [
+      "toString"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+    "anchor_entity": "minimumTokenResponseSchema",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "string",
+      "toString"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/11059",
+    "repo": "cal_dot_com",
+    "pr_number": 11059,
+    "bug_index": 2,
+    "severity": "High",
+    "comment": "parseRefreshTokenResponse returns a Zod safeParse result ({ success, data, error }), not the credential key object. Persisting that as key stores the wrapper instead of the token payload; we should store the parsed data or use schema parse.",
+    "extracted_ids": [
+      "parseRefreshTokenResponse",
+      "safeParse"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "parseRefreshTokenResponse",
+        "file_path": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts"
+    ],
+    "anchor_file": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+    "anchor_entity": "parseRefreshTokenResponse",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/11059",
+    "repo": "cal_dot_com",
+    "pr_number": 11059,
+    "bug_index": 3,
+    "severity": "High",
+    "comment": "When APP_CREDENTIAL_SHARING_ENABLED and CALCOM_CREDENTIAL_SYNC_ENDPOINT are set, the refreshFunction helper returns the fetch Response, but several callers (for example GoogleCalendarService.refreshAccessToken expecting res.data, and HubspotCalendarService.refreshAccessToken expecting a HubspotToken",
+    "extracted_ids": [
+      "APP_CREDENTIAL_SHARING_ENABLED",
+      "CALCOM_CREDENTIAL_SYNC_ENDPOINT",
+      "GoogleCalendarService",
+      "HubspotCalendarService",
+      "HubspotToken",
+      "callers",
+      "data",
+      "refreshAccessToken",
+      "refreshFunction"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "HubspotCalendarService",
+        "file_path": "packages/app-store/hubspot/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "refreshAccessToken",
+        "file_path": "packages/app-store/larkcalendar/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "refreshAccessToken",
+        "file_path": "packages/app-store/zoho-bigin/lib/CalendarService.ts"
+      },
+      {
+        "entity_name": "APP_CREDENTIAL_SHARING_ENABLED",
+        "file_path": "packages/lib/constants.ts"
+      },
+      {
+        "entity_name": "GoogleCalendarService",
+        "file_path": "packages/app-store/googlecalendar/lib/CalendarService.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/app-store/googlecalendar/lib/CalendarService.ts",
+      "packages/app-store/hubspot/lib/CalendarService.ts",
+      "packages/app-store/larkcalendar/lib/CalendarService.ts",
+      "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+      "packages/lib/constants.ts"
+    ],
+    "anchor_file": "packages/app-store/hubspot/lib/CalendarService.ts",
+    "anchor_entity": "HubspotCalendarService",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/11059",
+    "repo": "cal_dot_com",
+    "pr_number": 11059,
+    "bug_index": 4,
+    "severity": "High",
+    "comment": "When the sync endpoint path is used, res is a fetch Response and has no .data; res?.data will be undefined and token.access_token will throw at runtime. This relies on a consistent return shape from refreshOAuthTokens, which isn\u2019t guaranteed currently.",
+    "extracted_ids": [
+      "access_token",
+      "data"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+    "anchor_entity": "parseRefreshTokenResponse",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "data",
+      "access_token"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/14943",
+    "repo": "cal_dot_com",
+    "pr_number": 14943,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "Using retryCount: reminder.retryCount + 1 reads a possibly stale value and can lose increments under concurrency; consider an atomic increment via Prisma (increment: 1) to avoid race conditions (also applies to the similar update in the catch block).",
+    "extracted_ids": [
+      "Prisma",
+      "conditions",
+      "retryCount"
+    ],
+    "matched_entities": [],
+    "matched_files": [
+      "packages/prisma/schema.prisma"
+    ],
+    "anchor_file": "packages/prisma/schema.prisma",
+    "anchor_entity": null,
+    "confidence": "medium"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/14943",
+    "repo": "cal_dot_com",
+    "pr_number": 14943,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "The deletion logic in scheduleSMSReminders.ts incorrectly deletes non-SMS workflow reminders (e.g., Email, WhatsApp) that have retryCount > 1. This occurs because the retryCount condition within the OR clause for deletion lacks a method: WorkflowMethods.SMS filter, causing it to apply to all reminde",
+    "extracted_ids": [
+      "SMS",
+      "WhatsApp",
+      "WorkflowMethods",
+      "reminders",
+      "retryCount"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "unscheduledReminders",
+        "file_path": "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/features/ee/workflows/api/scheduleSMSReminders.ts"
+    ],
+    "anchor_file": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+    "anchor_entity": "unscheduledReminders",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/14740",
+    "repo": "cal_dot_com",
+    "pr_number": 14740,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "Case sensitivity bypass in email blacklist",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+    "anchor_entity": "addGuestsHandler",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/14740",
+    "repo": "cal_dot_com",
+    "pr_number": 14740,
+    "bug_index": 1,
+    "severity": "Critical",
+    "comment": "The logic for checking team admin/owner permissions is incorrect. This condition uses AND (&&) which requires both isTeamAdmin AND isTeamOwner to be true, but it should use OR (||) since a user needs to be either an admin OR an owner to have permission.",
+    "extracted_ids": [
+      "isTeamAdmin",
+      "isTeamOwner"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+    "anchor_entity": "addGuestsHandler",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "isTeamAdmin",
+      "isTeamOwner"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/14740",
+    "repo": "cal_dot_com",
+    "pr_number": 14740,
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "This calls the email sender with the original guests, so existing attendees included in the input will be treated as new when sending notifications, leading to incorrect emails.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+    "anchor_entity": "addGuestsHandler",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/14740",
+    "repo": "cal_dot_com",
+    "pr_number": 14740,
+    "bug_index": 3,
+    "severity": "Medium",
+    "comment": "uniqueGuests filters out existing attendees and blacklisted emails but does not deduplicate duplicates within the input; createMany can insert duplicate attendee rows if the client submits repeated emails.",
+    "extracted_ids": [
+      "createMany",
+      "uniqueGuests"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+    "anchor_entity": "addGuestsHandler",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "uniqueGuests",
+      "createMany"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/14740",
+    "repo": "cal_dot_com",
+    "pr_number": 14740,
+    "bug_index": 4,
+    "severity": "Low",
+    "comment": "Starting with an array containing an empty string may cause validation issues. Consider starting with an empty array [] and handling the empty state in the MultiEmail component instead.",
+    "extracted_ids": [
+      "MultiEmail"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "MultiEmail",
+        "file_path": "packages/ui/form/MultiEmail.tsx"
+      },
+      {
+        "entity_name": "MultiEmailProps",
+        "file_path": "packages/ui/form/MultiEmail.tsx"
+      },
+      {
+        "entity_name": "MultiEmail",
+        "file_path": "packages/ui/form/MultiEmailLazy.tsx"
+      }
+    ],
+    "matched_files": [
+      "packages/ui/form/MultiEmail.tsx",
+      "packages/ui/form/MultiEmailLazy.tsx"
+    ],
+    "anchor_file": "packages/ui/form/MultiEmail.tsx",
+    "anchor_entity": "MultiEmail",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/22532",
+    "repo": "cal_dot_com",
+    "pr_number": 22532,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "The updateManyByCredentialId call uses an empty data object, which prevents Prisma's @updatedAt decorator from updating the updatedAt timestamp. This results in inaccurate cache status tracking, as the timestamp isn't updated when the cache is refreshed. To fix this, explicitly set the updatedAt fie",
+    "extracted_ids": [
+      "updateManyByCredentialId",
+      "updatedAt"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "updateManyByCredentialId",
+        "file_path": "packages/lib/server/repository/selectedCalendar.ts"
+      }
+    ],
+    "matched_files": [
+      "packages/lib/server/repository/selectedCalendar.ts"
+    ],
+    "anchor_file": "packages/lib/server/repository/selectedCalendar.ts",
+    "anchor_entity": "updateManyByCredentialId",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/calcom/cal.com/pull/22532",
+    "repo": "cal_dot_com",
+    "pr_number": 22532,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "logic: macOS-specific sed syntax with empty string after -i flag will fail on Linux systems",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "packages/features/apps/components/CredentialActionsDropdown.tsx",
+    "anchor_entity": "CredentialActionsDropdown",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/1",
+    "repo": "discourse",
+    "pr_number": "ffbaf8c54269df2ce510de91245760fddce09896",
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "The downsize method is defined twice. The second definition, which expects a single dimensions string parameter, overrides the first, which expected separate max_width and max_height parameters. This makes the original method unreachable and breaks existing code that calls it with separate width and",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/models/optimized_image.rb",
+    "anchor_entity": "downsize",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "max_width",
+      "max_height"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/1",
+    "repo": "discourse",
+    "pr_number": "ffbaf8c54269df2ce510de91245760fddce09896",
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "Hardcoding maxSizeKB = 10 * 1024 ignores Discourse.SiteSettings['max_' + type + '_size_kb'], so the client-side limit can diverge from server-side and per-type settings (also applies to the 413 handler below).",
+    "extracted_ids": [
+      "SiteSettings",
+      "settings"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/javascripts/discourse/lib/utilities.js",
+    "anchor_entity": "maxSizeKB",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "_size_kb",
+      "SiteSettings",
+      "settings",
+      "max_"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/1",
+    "repo": "discourse",
+    "pr_number": "ffbaf8c54269df2ce510de91245760fddce09896",
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "Passing 80% as the dimensions can fail for animated GIFs when allow_animated_thumbnails is true, since the animated path uses gifsicle --resize-fit which expects WxH geometry, not a percentage; downsizing would then silently fail.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/controllers/uploads_controller.rb",
+    "anchor_entity": "create_upload",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "allow_animated_thumbnails"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/2",
+    "repo": "discourse",
+    "pr_number": "6669a2d94d76eea3b99b8c476d12b1eb66726b07",
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "logic: Potential nil pointer exception - if no TopicUser record exists, tu will be nil and calling methods on it will crash",
+    "extracted_ids": [
+      "TopicUser"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "TopicUser",
+        "file_path": "app/models/topic_user.rb"
+      }
+    ],
+    "matched_files": [
+      "app/models/topic_user.rb"
+    ],
+    "anchor_file": "app/models/topic_user.rb",
+    "anchor_entity": "TopicUser",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/2",
+    "repo": "discourse",
+    "pr_number": "6669a2d94d76eea3b99b8c476d12b1eb66726b07",
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "Typo in property name: 'stopNotificiationsText' should be 'stopNotificationsText' (missing 'n' in 'Notifications')",
+    "extracted_ids": [
+      "stopNotificationsText",
+      "stopNotificiationsText"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/mailers/user_notifications.rb",
+    "anchor_entity": "send_notification_email",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "Notifications"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/3",
+    "repo": "discourse",
+    "pr_number": "5f8a130277dbddc95d133cd2832be639baf89213",
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "BlockedEmail.should_block_email? method has side effects during a read operation - it updates statistics even when just checking if an email should be blocked. This could cause race conditions in concurrent environments and makes the method name misleading.",
+    "extracted_ids": [
+      "BlockedEmail",
+      "should_block_email"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "BlockedEmail",
+        "file_path": "app/models/blocked_email.rb"
+      },
+      {
+        "entity_name": "CreateBlockedEmails",
+        "file_path": "db/migrate/20130724201552_create_blocked_emails.rb"
+      }
+    ],
+    "matched_files": [
+      "app/models/blocked_email.rb",
+      "db/migrate/20130724201552_create_blocked_emails.rb"
+    ],
+    "anchor_file": "app/models/blocked_email.rb",
+    "anchor_entity": "BlockedEmail",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/3",
+    "repo": "discourse",
+    "pr_number": "5f8a130277dbddc95d133cd2832be639baf89213",
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "Regex pattern @(#{domains}) only matches domain suffixes, not full domains. evil.example.com would match whitelist entry example.com.",
+    "extracted_ids": [
+      "com",
+      "example"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "spec/models/blocked_email_spec.rb",
+    "anchor_entity": null,
+    "confidence": "low-enriched",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "example"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4",
+    "repo": "discourse",
+    "pr_number": "4f8aed295a29954023b2849c060ef4fb299d1b5d",
+    "bug_index": 0,
+    "severity": "Critical",
+    "comment": "SSRF vulnerability using open(url) without validation",
+    "extracted_ids": [
+      "SSRF",
+      "open"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "Gemfile_rails4.lock",
+    "anchor_entity": null,
+    "confidence": "low-enriched",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "open"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4",
+    "repo": "discourse",
+    "pr_number": "4f8aed295a29954023b2849c060ef4fb299d1b5d",
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "The current origin validation using indexOf is insufficient and can be bypassed. An attacker could use a malicious domain like evil-discourseUrl.com to pass this check.",
+    "extracted_ids": [
+      "com",
+      "discourseUrl",
+      "indexOf"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/javascripts/embed.js",
+    "anchor_entity": "postMessageReceived",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "indexOf",
+      "discourseUrl"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4",
+    "repo": "discourse",
+    "pr_number": "4f8aed295a29954023b2849c060ef4fb299d1b5d",
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "postMessage targetOrigin should be the origin (scheme+host+port), not the full referrer URL; using the full URL will cause the message to be dropped and prevent resizing.",
+    "extracted_ids": [
+      "URL",
+      "origin",
+      "postMessage",
+      "targetOrigin"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "postMessageReceived",
+        "file_path": "app/assets/javascripts/embed.js"
+      }
+    ],
+    "matched_files": [
+      "app/assets/javascripts/embed.js"
+    ],
+    "anchor_file": "app/assets/javascripts/embed.js",
+    "anchor_entity": "postMessageReceived",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4",
+    "repo": "discourse",
+    "pr_number": "4f8aed295a29954023b2849c060ef4fb299d1b5d",
+    "bug_index": 3,
+    "severity": "Medium",
+    "comment": "The code sets X-Frame-Options: ALLOWALL which completely disables clickjacking protection. The referer validation can be bypassed (referer headers are easily spoofed), and the fallback to empty string for nil referer masks validation failures.",
+    "extracted_ids": [
+      "ALLOWALL",
+      "bypassed"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/controllers/embed_controller.rb",
+    "anchor_entity": "ensure_embeddable",
+    "confidence": "high",
+    "anchor_method": "manual"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4",
+    "repo": "discourse",
+    "pr_number": "4f8aed295a29954023b2849c060ef4fb299d1b5d",
+    "bug_index": 4,
+    "severity": "Medium",
+    "comment": "The TopicEmbed.import method is susceptible to a NoMethodError if the contents parameter is nil when attempting to append a string, and an XSS vulnerability due to unescaped url interpolation in the generated HTML.",
+    "extracted_ids": [
+      "HTML",
+      "NoMethodError",
+      "TopicEmbed",
+      "XSS",
+      "import"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "TopicEmbed",
+        "file_path": "app/models/topic_embed.rb"
+      },
+      {
+        "entity_name": "CreateTopicEmbeds",
+        "file_path": "db/migrate/20131217174004_create_topic_embeds.rb"
+      },
+      {
+        "entity_name": "import",
+        "file_path": "app/models/topic_embed.rb"
+      }
+    ],
+    "matched_files": [
+      "app/models/topic_embed.rb",
+      "db/migrate/20131217174004_create_topic_embeds.rb"
+    ],
+    "anchor_file": "app/models/topic_embed.rb",
+    "anchor_entity": "TopicEmbed",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/4",
+    "repo": "discourse",
+    "pr_number": "4f8aed295a29954023b2849c060ef4fb299d1b5d",
+    "bug_index": 5,
+    "severity": "Medium",
+    "comment": "The ERB block closes with end if, which is invalid Ruby/ERB and will raise at render; it should just be end to close the if block.",
+    "extracted_ids": [
+      "ERB"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/models/topic_embed.rb",
+    "anchor_entity": "import_remote",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/5",
+    "repo": "discourse",
+    "pr_number": "5b229316ee4c661836ed1161139692a3e8527444",
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "Mixing float: left with flexbox causes layout issues. Further this PR removes the float-based right alignment for .d-header .panel, which may cause the login panel in the non-Ember/noscript header (where .panel is nested inside .row and not a flex item) to stack under the title instead of remaining ",
+    "extracted_ids": [
+      "header",
+      "panel",
+      "row"
+    ],
+    "matched_entities": [],
+    "matched_files": [
+      "app/assets/stylesheets/common/base/header.scss"
+    ],
+    "anchor_file": "app/assets/stylesheets/common/base/header.scss",
+    "anchor_entity": null,
+    "confidence": "medium"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/5",
+    "repo": "discourse",
+    "pr_number": "5b229316ee4c661836ed1161139692a3e8527444",
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "-ms-align-items never existed in any version of IE/Edge; the correct legacy property is -ms-flex-align.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/stylesheets/common/foundation/mixins.scss",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/6",
+    "repo": "discourse",
+    "pr_number": "267d8be1f556ed59639ced396c885bb44586da19",
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "The include_website_name method is missing the required ? suffix. Rails serializers expect include_ methods to end with ? for conditional attribute inclusion, a convention followed by other methods in this serializer. Without it, the website_name attribute may not be conditionally included as intend",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/serializers/user_serializer.rb",
+    "anchor_entity": "include_website_name",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "include_website_name",
+      "website_name"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7",
+    "repo": "discourse",
+    "pr_number": "d38c4d5f7443223c81529c22470293771baf9f38",
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "In .topic-meta-data h5 a, the original code had color: scale-color($primary, $lightness: 30%) but was changed to dark-light-choose(scale-color($primary, $lightness: 70%), scale-color($secondary, $lightness: 30%)). The lightness for the light theme changed from 30% to 70%, which is a dramatic inversi",
+    "extracted_ids": [
+      "choose",
+      "color",
+      "topic"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/stylesheets/common/base/_topic-list.scss",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "topic",
+      "choose",
+      "color"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7",
+    "repo": "discourse",
+    "pr_number": "d38c4d5f7443223c81529c22470293771baf9f38",
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "This change for desktop/user.css changes $primary from 30% to 50% for the light theme; most other changes preserve the original $primary value and move the complement to $secondary for dark. Consider reviewing this (also applies to a similar .name change in the mobile variant).",
+    "extracted_ids": [
+      "css"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/stylesheets/common/base/topic-post.scss",
+    "anchor_entity": null,
+    "confidence": "low-enriched",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "this"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7",
+    "repo": "discourse",
+    "pr_number": "d38c4d5f7443223c81529c22470293771baf9f38",
+    "bug_index": 2,
+    "severity": "Low",
+    "comment": "In topic-post.css the original code used $lightness: 70% but the replacement uses $lightness: 30% for the light theme. This makes the text significantly darker than intended.",
+    "extracted_ids": [
+      "css"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/stylesheets/desktop/topic-post.scss",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/8",
+    "repo": "discourse",
+    "pr_number": "060cda77729cb1c4a827560e09e89a7b22078ba9",
+    "bug_index": 0,
+    "severity": "High",
+    "comment": " The findMembers() call is now asynchronous and unhandled. The controller may not have member data immediately available, creating a race condition.",
+    "extracted_ids": [
+      "findMembers"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/javascripts/admin/controllers/admin-group.js.es6",
+    "anchor_entity": null,
+    "confidence": "low-enriched",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "findMembers"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/8",
+    "repo": "discourse",
+    "pr_number": "060cda77729cb1c4a827560e09e89a7b22078ba9",
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "In the next action, capping the next offset at user_count can produce an empty page (e.g., total equal to limit results in offset == total, showing 2/2 with no members). This can cause confusing UX on the last page.",
+    "extracted_ids": [
+      "page"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/assets/javascripts/admin/controllers/admin-group.js.es6",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "user_count",
+      "page"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/8",
+    "repo": "discourse",
+    "pr_number": "060cda77729cb1c4a827560e09e89a7b22078ba9",
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "HTTP method mismatch in .remove_member - test uses PUT but remove_member action expects DELETE",
+    "extracted_ids": [
+      "DELETE",
+      "HTTP",
+      "PUT",
+      "remove_member"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "remove_member",
+        "file_path": "app/controllers/admin/groups_controller.rb"
+      }
+    ],
+    "matched_files": [
+      "app/controllers/admin/groups_controller.rb"
+    ],
+    "anchor_file": "app/controllers/admin/groups_controller.rb",
+    "anchor_entity": "remove_member",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/9",
+    "repo": "discourse",
+    "pr_number": "ecfa17b5a79dfdc91e7a4d50b42ae78a35d0a293",
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "Thread-safety issue with lazy @loaded_locales",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "lib/freedom_patches/translate_accelerator.rb",
+    "anchor_entity": "ensure_loaded!",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "loaded_locales"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/9",
+    "repo": "discourse",
+    "pr_number": "ecfa17b5a79dfdc91e7a4d50b42ae78a35d0a293",
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "Consider normalizing the input locale (e.g., to a symbol) when checking/loading here to avoid double-loading if the same locale is passed as a String vs Symbol (also applies to other locations in the PR).",
+    "extracted_ids": [
+      "Symbol",
+      "locale"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/controllers/application_controller.rb",
+    "anchor_entity": "set_locale",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "locale"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/10",
+    "repo": "discourse",
+    "pr_number": "d1c69189f3c90ecf56013a8da904da9bff9a8e19",
+    "bug_index": 0,
+    "severity": "Critical",
+    "comment": "NoMethodError before_validation in EmbeddableHost",
+    "extracted_ids": [
+      "EmbeddableHost",
+      "NoMethodError"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "EmbeddableHost",
+        "file_path": "app/models/embeddable_host.rb"
+      },
+      {
+        "entity_name": "EmbeddableHostSerializer",
+        "file_path": "app/serializers/embeddable_host_serializer.rb"
+      },
+      {
+        "entity_name": "Admin::EmbeddableHostsController",
+        "file_path": "app/controllers/admin/embeddable_hosts_controller.rb"
+      },
+      {
+        "entity_name": "CreateEmbeddableHosts",
+        "file_path": "db/migrate/20150818190757_create_embeddable_hosts.rb"
+      }
+    ],
+    "matched_files": [
+      "app/controllers/admin/embeddable_hosts_controller.rb",
+      "app/models/embeddable_host.rb",
+      "app/serializers/embeddable_host_serializer.rb",
+      "db/migrate/20150818190757_create_embeddable_hosts.rb"
+    ],
+    "anchor_file": "app/models/embeddable_host.rb",
+    "anchor_entity": "EmbeddableHost",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/10",
+    "repo": "discourse",
+    "pr_number": "d1c69189f3c90ecf56013a8da904da9bff9a8e19",
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "The update and destroy methods in Admin::EmbeddableHostsController do not validate the existence of the EmbeddableHost record retrieved by ID. If EmbeddableHost.where(id: params[:id]).first returns nil (i.e., the host does not exist), attempting to call methods on the nil object (e.g., save_host or ",
+    "extracted_ids": [
+      "EmbeddableHost",
+      "EmbeddableHostsController",
+      "NoMethodError",
+      "first",
+      "nil",
+      "object"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "EmbeddableHost",
+        "file_path": "app/models/embeddable_host.rb"
+      },
+      {
+        "entity_name": "EmbeddableHostSerializer",
+        "file_path": "app/serializers/embeddable_host_serializer.rb"
+      },
+      {
+        "entity_name": "Admin::EmbeddableHostsController",
+        "file_path": "app/controllers/admin/embeddable_hosts_controller.rb"
+      },
+      {
+        "entity_name": "CreateEmbeddableHosts",
+        "file_path": "db/migrate/20150818190757_create_embeddable_hosts.rb"
+      }
+    ],
+    "matched_files": [
+      "app/controllers/admin/embeddable_hosts_controller.rb",
+      "app/models/embeddable_host.rb",
+      "app/serializers/embeddable_host_serializer.rb",
+      "db/migrate/20150818190757_create_embeddable_hosts.rb"
+    ],
+    "anchor_file": "app/models/embeddable_host.rb",
+    "anchor_entity": "EmbeddableHost",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/10",
+    "repo": "discourse",
+    "pr_number": "d1c69189f3c90ecf56013a8da904da9bff9a8e19",
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "record_for_host compares lower(host) = ? but does not normalize the parameter\u2019s case, so mixed\u2011case referer hosts may fail to match even though comparison intends to be case\u2011insensitive.",
+    "extracted_ids": [
+      "lower"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "app/models/embeddable_host.rb",
+    "anchor_entity": "record_for_host",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "lower",
+      "record_for_host"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/10",
+    "repo": "discourse",
+    "pr_number": "d1c69189f3c90ecf56013a8da904da9bff9a8e19",
+    "bug_index": 3,
+    "severity": "High",
+    "comment": "Because this migration inserts embeddable_hosts rows with raw SQL, any existing embeddable_hosts values that include http:// or /https:// or path segments won\u2019t go through the EmbeddableHost model\u2019s normalization, so the new host lookup (which compares only the bare host) may fail for migrated data.",
+    "extracted_ids": [
+      "EmbeddableHost",
+      "SQL",
+      "lookup"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "EmbeddableHost",
+        "file_path": "app/models/embeddable_host.rb"
+      },
+      {
+        "entity_name": "EmbeddableHostSerializer",
+        "file_path": "app/serializers/embeddable_host_serializer.rb"
+      },
+      {
+        "entity_name": "Admin::EmbeddableHostsController",
+        "file_path": "app/controllers/admin/embeddable_hosts_controller.rb"
+      },
+      {
+        "entity_name": "CreateEmbeddableHosts",
+        "file_path": "db/migrate/20150818190757_create_embeddable_hosts.rb"
+      }
+    ],
+    "matched_files": [
+      "app/controllers/admin/embeddable_hosts_controller.rb",
+      "app/models/embeddable_host.rb",
+      "app/serializers/embeddable_host_serializer.rb",
+      "db/migrate/20150818190757_create_embeddable_hosts.rb"
+    ],
+    "anchor_file": "app/models/embeddable_host.rb",
+    "anchor_entity": "EmbeddableHost",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/79265",
+    "repo": "grafana",
+    "pr_number": 79265,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "Race condition: Multiple concurrent requests could pass the device count check simultaneously and create devices beyond the limit. Consider using a database transaction or lock.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+    "anchor_entity": "CreateOrUpdateDevice",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/79265",
+    "repo": "grafana",
+    "pr_number": 79265,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "Anonymous authentication now fails entirely if anonDeviceService.TagDevice returns ErrDeviceLimitReached. Previously, device tagging was asynchronous and non-blocking. This change prevents anonymous users from authenticating when the device limit is reached.",
+    "extracted_ids": [
+      "ErrDeviceLimitReached",
+      "TagDevice",
+      "anonDeviceService"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "TagDevice",
+        "file_path": "pkg/services/anonymous/anonimpl/impl.go"
+      },
+      {
+        "entity_name": "TestIntegrationAnonDeviceService_localCacheSafety",
+        "file_path": "pkg/services/anonymous/anonimpl/impl_test.go"
+      }
+    ],
+    "matched_files": [
+      "pkg/services/anonymous/anonimpl/impl.go",
+      "pkg/services/anonymous/anonimpl/impl_test.go"
+    ],
+    "anchor_file": "pkg/services/anonymous/anonimpl/impl.go",
+    "anchor_entity": "TagDevice",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/79265",
+    "repo": "grafana",
+    "pr_number": 79265,
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "This call won\u2019t compile: dbSession.Exec(args...) is given a []interface{} where the first element is the query, but Exec\u2019s signature requires a first parameter of type string (not an interface{} splat).",
+    "extracted_ids": [
+      "Exec",
+      "dbSession"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+    "anchor_entity": "CreateOrUpdateDevice",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "string",
+      "dbSession",
+      "Exec"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/79265",
+    "repo": "grafana",
+    "pr_number": 79265,
+    "bug_index": 3,
+    "severity": "Low",
+    "comment": "Returning ErrDeviceLimitReached when no rows were updated is misleading; the device might not exist.",
+    "extracted_ids": [
+      "ErrDeviceLimitReached"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+    "anchor_entity": "updateDevice",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "ErrDeviceLimitReached"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/79265",
+    "repo": "grafana",
+    "pr_number": 79265,
+    "bug_index": 4,
+    "severity": "Low",
+    "comment": "Time window calculation inconsistency: Using device.UpdatedAt.UTC().Add(-anonymousDeviceExpiration) as the lower bound but device.UpdatedAt as the current time may not match the intended logic. Consider using time.Now().UTC() consistently.",
+    "extracted_ids": [
+      "Now",
+      "UTC",
+      "UpdatedAt",
+      "anonymousDeviceExpiration"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+    "anchor_entity": "updateDevice",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "anonymousDeviceExpiration",
+      "UpdatedAt"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/103633",
+    "repo": "grafana",
+    "pr_number": 103633,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "The Check operation exhibits asymmetric cache trust logic: cached permission grants are trusted and returned immediately, but cached denials from the same permission cache are ignored, leading to a fresh database lookup. This allows stale cached grants to provide access to revoked resources, posing ",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/services/authz/rbac/service.go",
+    "anchor_entity": "Check",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/103633",
+    "repo": "grafana",
+    "pr_number": 103633,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "The test comment says the cached permissions 'allow access', but the map stores false for dashboards:uid:dash1, so checkPermission will still treat this scope as not allowed.",
+    "extracted_ids": [
+      "checkPermission"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/services/authz/rbac/service.go",
+    "anchor_entity": "getCachedIdentityPermissions",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "checkPermission"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/76186",
+    "repo": "grafana",
+    "pr_number": 76186,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "The ContextualLoggerMiddleware methods (QueryData, CallResource, CheckHealth, CollectMetrics) panic when a nil request is received. This occurs because they directly access req.PluginContext (via the instrumentContext function) without first checking if req is nil. This is a regression, as previous ",
+    "extracted_ids": [
+      "CallResource",
+      "CheckHealth",
+      "CollectMetrics",
+      "ContextualLoggerMiddleware",
+      "PluginContext",
+      "QueryData",
+      "instrumentContext",
+      "methods"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "CollectMetrics",
+        "file_path": "pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware.go"
+      },
+      {
+        "entity_name": "CollectMetrics",
+        "file_path": "pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go"
+      },
+      {
+        "entity_name": "CollectMetrics",
+        "file_path": "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go"
+      },
+      {
+        "entity_name": "CollectMetrics",
+        "file_path": "pkg/services/pluginsintegration/clientmiddleware/metrics_middleware.go"
+      },
+      {
+        "entity_name": "instrumentContext",
+        "file_path": "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go"
+      }
+    ],
+    "matched_files": [
+      "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go",
+      "pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware.go",
+      "pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go",
+      "pkg/services/pluginsintegration/clientmiddleware/metrics_middleware.go"
+    ],
+    "anchor_file": "pkg/services/pluginsintegration/clientmiddleware/instrumentation_middleware.go",
+    "anchor_entity": "CollectMetrics",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/76186",
+    "repo": "grafana",
+    "pr_number": 76186,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "The traceID is no longer logged for plugin requests. During a refactoring, the tracing import and the logic to extract and add traceID from the context to log parameters were removed from the LoggerMiddleware. The newly introduced ContextualLoggerMiddleware does not add this information, resulting i",
+    "extracted_ids": [
+      "ContextualLoggerMiddleware",
+      "LoggerMiddleware"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "NewContextualLoggerMiddleware",
+        "file_path": "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go"
+      }
+    ],
+    "matched_files": [
+      "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go",
+      "pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go"
+    ],
+    "anchor_file": "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go",
+    "anchor_entity": "NewContextualLoggerMiddleware",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/107534",
+    "repo": "grafana",
+    "pr_number": 107534,
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "The applyTemplateVariables method is called with request.filters as the third parameter, but this parameter is not used in the corresponding test setup.",
+    "extracted_ids": [
+      "applyTemplateVariables",
+      "filters"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "public/app/plugins/datasource/loki/querySplitting.ts",
+    "anchor_entity": "runSplitQuery",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "applyTemplateVariables",
+      "filters"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/106778",
+    "repo": "grafana",
+    "pr_number": 106778,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "The rendered GrafanaRuleListItem is missing the required key prop for React list items. This can cause rendering issues when the list order changes.",
+    "extracted_ids": [
+      "GrafanaRuleListItem"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "GrafanaRuleListItem",
+        "file_path": "public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx"
+      },
+      {
+        "entity_name": "GrafanaRuleListItemProps",
+        "file_path": "public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx"
+      },
+      {
+        "entity_name": "GrafanaRuleListItemProps",
+        "file_path": "public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx"
+      },
+      {
+        "entity_name": "GrafanaRuleListItem",
+        "file_path": "public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx"
+      }
+    ],
+    "matched_files": [
+      "public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx",
+      "public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx"
+    ],
+    "anchor_file": "public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx",
+    "anchor_entity": "GrafanaRuleListItem",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/106778",
+    "repo": "grafana",
+    "pr_number": 106778,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "RuleActionsButtons is invoked with only promRule, but SilenceGrafanaRuleDrawer inside RuleActionsButtons still depends on a Grafana Ruler rule being present, so for Grafana rules coming from list views the 'Silence notifications' menu entry (now driven by Grafana Prom abilities) will toggle showSile",
+    "extracted_ids": [
+      "RuleActionsButtons",
+      "SilenceGrafanaRuleDrawer",
+      "entry",
+      "promRule",
+      "showSilenceDrawer"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "RuleActionsButtons",
+        "file_path": "public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx"
+      },
+      {
+        "entity_name": "GrafanaPromRuleDTOBase",
+        "file_path": "public/app/types/unified-alerting-dto.ts"
+      },
+      {
+        "entity_name": "useAllGrafanaPromRuleAbilities",
+        "file_path": "public/app/features/alerting/unified/hooks/useAbilities.ts"
+      },
+      {
+        "entity_name": "IsGrafanaPromRuleEditableResult",
+        "file_path": "public/app/features/alerting/unified/hooks/useAbilities.ts"
+      },
+      {
+        "entity_name": "isProvisionedPromRule",
+        "file_path": "public/app/features/alerting/unified/utils/rules.ts"
+      }
+    ],
+    "matched_files": [
+      "public/app/features/alerting/unified/hooks/useAbilities.ts",
+      "public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.test.tsx",
+      "public/app/features/alerting/unified/rule-list/GrafanaGroupLoader.tsx",
+      "public/app/features/alerting/unified/rule-list/GrafanaRuleLoader.tsx",
+      "public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx"
+    ],
+    "anchor_file": "public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx",
+    "anchor_entity": "RuleActionsButtons",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/90045",
+    "repo": "grafana",
+    "pr_number": 90045,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "The context is being created with d.Log instead of the log variable that was initialized with additional context values (name, kind, method). This means those values won't be propagated to the logging context.",
+    "extracted_ids": [
+      "Log",
+      "values"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/apiserver/rest/dualwriter_mode3.go",
+    "anchor_entity": "Create",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "values"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/90045",
+    "repo": "grafana",
+    "pr_number": 90045,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "Bug: calling recordLegacyDuration when storage operation fails should be recordStorageDuration.",
+    "extracted_ids": [
+      "recordLegacyDuration",
+      "recordStorageDuration"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/apiserver/rest/dualwriter_mode3.go",
+    "anchor_entity": "Create",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "recordStorageDuration",
+      "recordLegacyDuration"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/90045",
+    "repo": "grafana",
+    "pr_number": 90045,
+    "bug_index": 2,
+    "severity": "Medium",
+    "comment": "Inconsistency: using name instead of options.Kind for metrics recording differs from other methods.",
+    "extracted_ids": [
+      "Kind"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/apiserver/rest/dualwriter_mode3.go",
+    "anchor_entity": "List",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "Kind"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/80329",
+    "repo": "grafana",
+    "pr_number": 80329,
+    "bug_index": 0,
+    "severity": "Low",
+    "comment": "The code uses Error log level for what appears to be debugging information. This will pollute error logs in production. Consider using Debug or Info level instead.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "pkg/services/annotations/annotationsimpl/xorm_store.go",
+    "anchor_entity": "CleanAnnotations",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/94942",
+    "repo": "grafana",
+    "pr_number": 94942,
+    "bug_index": 0,
+    "severity": "Critical",
+    "comment": "The enableSqlExpressions function has flawed logic that always returns false, effectively disabling SQL expressions unconditionally:",
+    "extracted_ids": [
+      "SQL",
+      "enableSqlExpressions"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "enableSqlExpressions",
+        "file_path": "pkg/expr/reader.go"
+      }
+    ],
+    "matched_files": [
+      "pkg/expr/reader.go"
+    ],
+    "anchor_file": "pkg/expr/reader.go",
+    "anchor_entity": "enableSqlExpressions",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/94942",
+    "repo": "grafana",
+    "pr_number": 94942,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "Several methods such as NewInMemoryDB().RunCommands and db.QueryFramesInto return 'not implemented'.",
+    "extracted_ids": [
+      "NewInMemoryDB",
+      "QueryFramesInto",
+      "RunCommands"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "RunCommands",
+        "file_path": "pkg/expr/sql/db.go"
+      },
+      {
+        "entity_name": "QueryFramesInto",
+        "file_path": "pkg/expr/sql/db.go"
+      },
+      {
+        "entity_name": "NewInMemoryDB",
+        "file_path": "pkg/expr/sql/db.go"
+      }
+    ],
+    "matched_files": [
+      "pkg/expr/sql/db.go"
+    ],
+    "anchor_file": "pkg/expr/sql/db.go",
+    "anchor_entity": "RunCommands",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/97529",
+    "repo": "grafana",
+    "pr_number": 97529,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "A race condition in BuildIndex allows multiple goroutines to concurrently build the same expensive index for the same key. This is caused by moving the b.cacheMu lock from protecting the entire function to only protecting the final cache assignment. ",
+    "extracted_ids": [
+      "BuildIndex",
+      "cacheMu"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "BuildIndex",
+        "file_path": "pkg/storage/unified/search/bleve.go"
+      }
+    ],
+    "matched_files": [
+      "pkg/storage/unified/search/bleve.go"
+    ],
+    "anchor_file": "pkg/storage/unified/search/bleve.go",
+    "anchor_entity": "BuildIndex",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/grafana/grafana/pull/97529",
+    "repo": "grafana",
+    "pr_number": 97529,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "Calling s.search.TotalDocs() here may race with concurrent index creation: TotalDocs iterates b.cache without synchronization, and the event watcher goroutine started just above could trigger BuildIndex writes concurrently, potentially causing a concurrent map read/write panic.",
+    "extracted_ids": [
+      "BuildIndex",
+      "TotalDocs",
+      "cache",
+      "search"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "Search",
+        "file_path": "pkg/storage/unified/resource/server.go"
+      },
+      {
+        "entity_name": "BuildIndex",
+        "file_path": "pkg/storage/unified/search/bleve.go"
+      }
+    ],
+    "matched_files": [
+      "pkg/storage/unified/resource/search.go",
+      "pkg/storage/unified/resource/server.go",
+      "pkg/storage/unified/search/bleve.go"
+    ],
+    "anchor_file": "pkg/storage/unified/resource/server.go",
+    "anchor_entity": "Search",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/keycloak-greptile/pull/1",
+    "repo": "keycloak",
+    "pr_number": 41249,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "ConditionalPasskeysEnabled() called without UserModel parameter",
+    "extracted_ids": [
+      "ConditionalPasskeysEnabled",
+      "UserModel"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "isConditionalPasskeysEnabled",
+        "file_path": "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java"
+      }
+    ],
+    "matched_files": [
+      "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java"
+    ],
+    "anchor_file": "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java",
+    "anchor_entity": "isConditionalPasskeysEnabled",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/keycloak-greptile/pull/1",
+    "repo": "keycloak",
+    "pr_number": 41249,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "With isConditionalPasskeysEnabled(UserModel user) requiring user != null, authenticate(...) will not call webauthnAuth.fillContextForm(context) on the initial login page where context.getUser() is still null, so conditional passkey UI will not be set up for first-time passkey login. Consider whether",
+    "extracted_ids": [
+      "UserModel",
+      "authenticate",
+      "fillContextForm",
+      "getUser",
+      "isConditionalPasskeysEnabled",
+      "webauthnAuth"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "isConditionalPasskeysEnabled",
+        "file_path": "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java"
+      },
+      {
+        "entity_name": "authenticate",
+        "file_path": "services/src/main/java/org/keycloak/authentication/authenticators/browser/PasswordForm.java"
+      },
+      {
+        "entity_name": "authenticate",
+        "file_path": "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java"
+      }
+    ],
+    "matched_files": [
+      "services/src/main/java/org/keycloak/authentication/authenticators/browser/PasswordForm.java",
+      "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java"
+    ],
+    "anchor_file": "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernamePasswordForm.java",
+    "anchor_entity": "isConditionalPasskeysEnabled",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/32918",
+    "repo": "keycloak",
+    "pr_number": 32918,
+    "bug_index": 0,
+    "severity": "Critical",
+    "comment": "Recursive caching call using session instead of delegate",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/idp/InfinispanIdentityProviderStorageProvider.java",
+    "anchor_entity": "getForLogin",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/32918",
+    "repo": "keycloak",
+    "pr_number": 32918,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "Cleanup reference uses incorrect alias - should be 'idp-alias-' + i instead of 'alias'.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/organization/cache/OrganizationCacheTest.java",
+    "anchor_entity": "testCacheIDPForLogin",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "idp-alias-",
+      "alias"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/33832",
+    "repo": "keycloak",
+    "pr_number": 33832,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "Returns wrong provider (default keystore instead of BouncyCastle)",
+    "extracted_ids": [
+      "BouncyCastle",
+      "provider"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "getBouncyCastleProvider",
+        "file_path": "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java"
+      },
+      {
+        "entity_name": "getAlgorithmProvider",
+        "file_path": "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java"
+      },
+      {
+        "entity_name": "getIdentityExtractorProvider",
+        "file_path": "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java"
+      },
+      {
+        "entity_name": "getEcdsaCryptoProvider",
+        "file_path": "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java"
+      },
+      {
+        "entity_name": "FIPS1402Provider",
+        "file_path": "crypto/fips1402/src/main/java/org/keycloak/crypto/fips/FIPS1402Provider.java"
+      }
+    ],
+    "matched_files": [
+      "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java",
+      "authz/client/src/main/resources/META-INF/services/org.keycloak.common.crypto.CryptoProvider",
+      "common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java",
+      "common/src/main/java/org/keycloak/common/crypto/CryptoProvider.java",
+      "crypto/default/src/main/java/org/keycloak/crypto/def/DefaultCryptoProvider.java"
+    ],
+    "anchor_file": "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java",
+    "anchor_entity": "getBouncyCastleProvider",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/33832",
+    "repo": "keycloak",
+    "pr_number": 33832,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "Dead code exists where ASN1Encoder instances are created and written to, but their results are immediately discarded. The actual encoding is performed by new ASN1Encoder instances created in the subsequent return statement, rendering the earlier operations useless.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java",
+    "anchor_entity": "concatenatedRSToASN1DER",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/36882",
+    "repo": "keycloak",
+    "pr_number": 36882,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Incorrect method call for exit codes. The picocli.exit() method calls System.exit() directly, which is problematic:",
+    "extracted_ids": [
+      "exit"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "operator/src/test/java/org/keycloak/operator/testsuite/utils/K8sUtils.java",
+    "anchor_entity": "inClusterCurl",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "exit"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/36880",
+    "repo": "keycloak",
+    "pr_number": 36880,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "Inconsistent feature flag bug causing orphaned permissions. The AdminPermissions event listener, responsible for cleaning up permissions upon role, client, or group removal, is incorrectly guarded by the ADMIN_FINE_GRAINED_AUTHZ (V1) feature flag. This is inconsistent with other methods in the class",
+    "extracted_ids": [
+      "ADMIN_FINE_GRAINED_AUTHZ",
+      "ADMIN_FINE_GRAINED_AUTHZ_V2",
+      "AdminPermissions"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "AdminPermissionsSchema",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java"
+      },
+      {
+        "entity_name": "AdminPermissions",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/AdminPermissions.java"
+      }
+    ],
+    "matched_files": [
+      "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/AdminPermissions.java"
+    ],
+    "anchor_file": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java",
+    "anchor_entity": "AdminPermissionsSchema",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/36880",
+    "repo": "keycloak",
+    "pr_number": 36880,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "In hasPermission(ClientModel client, String scope), the resource lookup uses findByName(server, client.getId(), server.getId()), but AdminPermissionsSchema.getOrCreateResource creates per-client resources with the owner set to resourceServer.getClientId(), so this lookup will never find those resour",
+    "extracted_ids": [
+      "AdminPermissionsSchema",
+      "ClientModel",
+      "findByName",
+      "getClientId",
+      "getId",
+      "getOrCreateResource",
+      "hasPermission",
+      "resourceServer"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "getId",
+        "file_path": "test-framework/remote-providers/src/main/java/org/keycloak/testframework/remote/providers/runonserver/RunOnServerRealmResourceProviderFactory.java"
+      },
+      {
+        "entity_name": "getOrCreateResource",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java"
+      },
+      {
+        "entity_name": "AdminPermissionsSchema",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java"
+      },
+      {
+        "entity_name": "hasPermission",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/ClientPermissionsV2.java"
+      }
+    ],
+    "matched_files": [
+      "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/ClientPermissionsV2.java",
+      "test-framework/remote-providers/src/main/java/org/keycloak/testframework/remote/providers/runonserver/RunOnServerRealmResourceProviderFactory.java"
+    ],
+    "anchor_file": "test-framework/remote-providers/src/main/java/org/keycloak/testframework/remote/providers/runonserver/RunOnServerRealmResourceProviderFactory.java",
+    "anchor_entity": "getId",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/36880",
+    "repo": "keycloak",
+    "pr_number": 36880,
+    "bug_index": 2,
+    "severity": "High",
+    "comment": "In getClientsWithPermission(String scope), iterating resourceStore.findByType(server, AdminPermissionsSchema.CLIENTS_RESOURCE_TYPE) and returning resource.getName() will only ever consider the type-level 'Clients' resource (per-client resources have no type) and return its name, while AvailableRoleM",
+    "extracted_ids": [
+      "AdminPermissionsSchema",
+      "AvailableRoleMappingResource",
+      "CLIENTS_RESOURCE_TYPE",
+      "findByType",
+      "getClientById",
+      "getClientsWithPermission",
+      "getName",
+      "getRoleIdsWithPermissions",
+      "resource",
+      "resourceStore"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "AdminPermissionsSchema",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java"
+      },
+      {
+        "entity_name": "getOrCreateResource",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java"
+      },
+      {
+        "entity_name": "WatchedResources",
+        "file_path": "operator/src/main/java/org/keycloak/operator/controllers/WatchedResources.java"
+      },
+      {
+        "entity_name": "ResourceType",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java"
+      },
+      {
+        "entity_name": "resource",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/ClientPermissionsV2.java"
+      }
+    ],
+    "matched_files": [
+      "operator/src/main/java/org/keycloak/operator/controllers/KeycloakController.java",
+      "operator/src/main/java/org/keycloak/operator/controllers/KeycloakUpdateJobDependentResource.java",
+      "operator/src/main/java/org/keycloak/operator/controllers/WatchedResources.java",
+      "operator/src/main/java/org/keycloak/operator/upgrade/impl/AutoUpgradeLogic.java",
+      "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java"
+    ],
+    "anchor_file": "server-spi-private/src/main/java/org/keycloak/authorization/AdminPermissionsSchema.java",
+    "anchor_entity": "AdminPermissionsSchema",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37038",
+    "repo": "keycloak",
+    "pr_number": 37038,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "Incorrect permission check in canManage() method",
+    "extracted_ids": [
+      "canManage"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "canManage",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissions.java"
+      },
+      {
+        "entity_name": "canManageByGroup",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/UserPermissions.java"
+      },
+      {
+        "entity_name": "canManage",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissionsV2.java"
+      },
+      {
+        "entity_name": "canManage",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/UserPermissionsV2.java"
+      },
+      {
+        "entity_name": "canManageGroupMembership",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/UserPermissionsV2.java"
+      }
+    ],
+    "matched_files": [
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissions.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissionsV2.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/UserPermissions.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/UserPermissionsV2.java"
+    ],
+    "anchor_file": "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissions.java",
+    "anchor_entity": "canManage",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37038",
+    "repo": "keycloak",
+    "pr_number": 37038,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "In getGroupIdsWithViewPermission, hasPermission is called with groupResource.getId() and the same groupResource.getId() is added to granted, but hasPermission resolves resources by name (treating the argument as a group id) and the GroupPermissionEvaluator contract says this method returns group IDs",
+    "extracted_ids": [
+      "GROUPS",
+      "GroupPermissionEvaluator",
+      "JPA",
+      "MANAGE_MEMBERS",
+      "UserModel",
+      "VIEW_MEMBERS",
+      "getGroupIdsWithViewPermission",
+      "getId",
+      "getUsersCount",
+      "groupResource",
+      "hasPermission",
+      "ids"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "GroupResource",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/GroupResource.java"
+      },
+      {
+        "entity_name": "GroupResourceTypeEvaluationTest",
+        "file_path": "tests/base/src/test/java/org/keycloak/tests/admin/authz/fgap/GroupResourceTypeEvaluationTest.java"
+      },
+      {
+        "entity_name": "GroupPermissionEvaluator",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissionEvaluator.java"
+      },
+      {
+        "entity_name": "groups",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/MgmtPermissionsV2.java"
+      },
+      {
+        "entity_name": "getGroupIdsWithViewPermission",
+        "file_path": "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissionEvaluator.java"
+      }
+    ],
+    "matched_files": [
+      "services/src/main/java/org/keycloak/services/resources/admin/GroupResource.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/GroupsResource.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/UsersResource.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissionEvaluator.java",
+      "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissions.java"
+    ],
+    "anchor_file": "services/src/main/java/org/keycloak/services/resources/admin/GroupResource.java",
+    "anchor_entity": "GroupResource",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37429",
+    "repo": "keycloak",
+    "pr_number": 37429,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "The translation is in Italian instead of Lithuanian. This should be translated to Lithuanian to match the file's locale (messages_lt.properties).",
+    "extracted_ids": [
+      "locale",
+      "properties"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "VerifyMessageProperties",
+        "file_path": "misc/theme-verifier/src/main/java/org/keycloak/themeverifier/VerifyMessageProperties.java"
+      },
+      {
+        "entity_name": "VerifyMessagePropertiesTest",
+        "file_path": "misc/theme-verifier/src/test/java/org/keycloak/themeverifier/VerifyMessagePropertiesTest.java"
+      }
+    ],
+    "matched_files": [
+      "js/apps/account-ui/maven-resources/theme/keycloak.v3/account/messages/messages_en.properties",
+      "js/apps/admin-ui/maven-resources-community/theme/keycloak.v2/admin/messages/messages_zh_CN.properties",
+      "js/apps/admin-ui/maven-resources/theme/keycloak.v2/admin/messages/messages_en.properties",
+      "misc/theme-verifier/src/main/java/org/keycloak/themeverifier/VerifyMessageProperties.java",
+      "misc/theme-verifier/src/test/java/org/keycloak/themeverifier/VerifyMessagePropertiesTest.java"
+    ],
+    "anchor_file": "misc/theme-verifier/src/main/java/org/keycloak/themeverifier/VerifyMessageProperties.java",
+    "anchor_entity": "VerifyMessageProperties",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37429",
+    "repo": "keycloak",
+    "pr_number": 37429,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "The totpStep1 value uses Traditional Chinese terms in the Simplified Chinese file (zh_CN), which is likely incorrect for this locale. Please verify the locale\u2011appropriate translation.",
+    "extracted_ids": [
+      "totpStep1"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "themes/src/main/resources-community/theme/base/login/messages/messages_sk.properties",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "totpStep1",
+      "file"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37429",
+    "repo": "keycloak",
+    "pr_number": 37429,
+    "bug_index": 2,
+    "severity": "Low",
+    "comment": "The anchor sanitization logic has a potential issue where it consumes English matcher groups without proper validation. If the translated text has more anchor tags than the English text, this could lead to incorrect validation results.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "misc/theme-verifier/src/main/java/org/keycloak/themeverifier/VerifyMessageProperties.java",
+    "anchor_entity": "santizeAnchors",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37429",
+    "repo": "keycloak",
+    "pr_number": 37429,
+    "bug_index": 3,
+    "severity": "Low",
+    "comment": "The method name 'santizeAnchors' should be 'sanitizeAnchors' (missing 'i').",
+    "extracted_ids": [
+      "sanitizeAnchors",
+      "santizeAnchors"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "santizeAnchors",
+        "file_path": "misc/theme-verifier/src/main/java/org/keycloak/themeverifier/VerifyMessageProperties.java"
+      }
+    ],
+    "matched_files": [
+      "misc/theme-verifier/src/main/java/org/keycloak/themeverifier/VerifyMessageProperties.java"
+    ],
+    "anchor_file": "misc/theme-verifier/src/main/java/org/keycloak/themeverifier/VerifyMessageProperties.java",
+    "anchor_entity": "santizeAnchors",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37634",
+    "repo": "keycloak",
+    "pr_number": 37634,
+    "bug_index": 0,
+    "severity": "Critical",
+    "comment": "Wrong parameter in null check (grantType vs. rawTokenId)",
+    "extracted_ids": [
+      "grantType",
+      "rawTokenId"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "OAuth2GrantType",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantType.java"
+      },
+      {
+        "entity_name": "OAuth2GrantTypeFactory",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeFactory.java"
+      },
+      {
+        "entity_name": "PreAuthorizedCodeGrantTypeFactory",
+        "file_path": "services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantTypeFactory.java"
+      },
+      {
+        "entity_name": "OAuth2GrantTypeBase",
+        "file_path": "services/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeBase.java"
+      },
+      {
+        "entity_name": "PreAuthorizedCodeGrantType",
+        "file_path": "services/src/main/java/org/keycloak/protocol/oidc/grants/PreAuthorizedCodeGrantType.java"
+      }
+    ],
+    "matched_files": [
+      "server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantType.java",
+      "server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeFactory.java",
+      "services/src/main/java/org/keycloak/protocol/oidc/encode/AccessTokenContext.java",
+      "services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProviderFactory.java",
+      "services/src/main/java/org/keycloak/protocol/oidc/grants/AuthorizationCodeGrantTypeFactory.java"
+    ],
+    "anchor_file": "server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantType.java",
+    "anchor_entity": "OAuth2GrantType",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37634",
+    "repo": "keycloak",
+    "pr_number": 37634,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "In isAccessTokenId, the substring for the grant shortcut and the equality check look inverted: the grant shortcut occupies indices 4\u20135 (substring(4,6)), and a match should return true (combined with UUID check), not false.",
+    "extracted_ids": [
+      "UUID",
+      "isAccessTokenId",
+      "substring"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "isAccessTokenId",
+        "file_path": "testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java"
+      }
+    ],
+    "matched_files": [
+      "testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java"
+    ],
+    "anchor_file": "testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/AssertEvents.java",
+    "anchor_entity": "isAccessTokenId",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37634",
+    "repo": "keycloak",
+    "pr_number": 37634,
+    "bug_index": 2,
+    "severity": "Low",
+    "comment": "Javadoc mentions \"usually like 3-letters shortcut\" but some implementations use 2-letter shortcuts (\"ac\", \"cc\", \"rt\", \"te\", \"pc\", \"ci\", \"ro\"). Consider updating documentation to reflect actual usage pattern.",
+    "extracted_ids": [
+      "shortcuts"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "server-spi-private/src/main/java/org/keycloak/protocol/oidc/grants/OAuth2GrantTypeFactory.java",
+    "anchor_entity": "getShortcut",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "usually like 3-letters shortcut"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/37634",
+    "repo": "keycloak",
+    "pr_number": 37634,
+    "bug_index": 3,
+    "severity": "Low",
+    "comment": " Catching generic RuntimeException is too broad. The implementation throws IllegalArgumentException specifically - catch that instead for more precise testing.",
+    "extracted_ids": [
+      "IllegalArgumentException",
+      "RuntimeException"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "services/src/main/java/org/keycloak/protocol/oidc/encode/DefaultTokenContextEncoderProvider.java",
+    "anchor_entity": "getTokenContextFromTokenId",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "IllegalArgumentException"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/38446",
+    "repo": "keycloak",
+    "pr_number": 38446,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Unsafe raw List deserialization without type safety. Calling Optional.get() directly on the Optional returned by RecoveryAuthnCodesUtils.getCredential(user) without checking isPresent() can lead to a NoSuchElementException if the Optional is empty.",
+    "extracted_ids": [
+      "NoSuchElementException",
+      "RecoveryAuthnCodesUtils",
+      "getCredential",
+      "isPresent"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "RecoveryAuthnCodesUtils",
+        "file_path": "server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java"
+      },
+      {
+        "entity_name": "getCredential",
+        "file_path": "server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java"
+      },
+      {
+        "entity_name": "getCredentials",
+        "file_path": "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java"
+      }
+    ],
+    "matched_files": [
+      "server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java",
+      "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java"
+    ],
+    "anchor_file": "server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java",
+    "anchor_entity": "RecoveryAuthnCodesUtils",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/38446",
+    "repo": "keycloak",
+    "pr_number": 38446,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "After creating the RecoveryAuthnCodesCredentialModel, consider setting its id from the stored credential (e.g., myUser.recoveryCodes.getId()); otherwise getId() will be null and downstream removal by id (e.g., removeStoredCredentialById in the authenticator flow) may not work.",
+    "extracted_ids": [
+      "RecoveryAuthnCodesCredentialModel",
+      "credential",
+      "getId",
+      "myUser",
+      "recoveryCodes",
+      "removeStoredCredentialById"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "CredentialHelper",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java"
+      },
+      {
+        "entity_name": "CredentialModel",
+        "file_path": "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java"
+      },
+      {
+        "entity_name": "createRecoveryCodesCredential",
+        "file_path": "server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java"
+      },
+      {
+        "entity_name": "getCredential",
+        "file_path": "server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java"
+      },
+      {
+        "entity_name": "updateCredential",
+        "file_path": "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java"
+      }
+    ],
+    "matched_files": [
+      "server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java",
+      "server-spi/src/main/java/org/keycloak/models/utils/RecoveryAuthnCodesUtils.java",
+      "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java",
+      "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorageFactory.java",
+      "testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/federation/storage/BackwardsCompatibilityUserStorageTest.java"
+    ],
+    "anchor_file": "server-spi-private/src/main/java/org/keycloak/utils/CredentialHelper.java",
+    "anchor_entity": "CredentialHelper",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/40940",
+    "repo": "keycloak",
+    "pr_number": 40940,
+    "bug_index": 0,
+    "severity": "Critical",
+    "comment": "Returning null from getSubGroupsCount() violates the GroupModel contract (Javadoc says it never returns null) and may lead to NPEs in callers that expect a non-null count.",
+    "extracted_ids": [
+      "GroupModel",
+      "contract",
+      "getSubGroupsCount"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "getSubGroupsCount",
+        "file_path": "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java"
+      }
+    ],
+    "matched_files": [
+      "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java"
+    ],
+    "anchor_file": "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java",
+    "anchor_entity": "getSubGroupsCount",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/keycloak/keycloak/pull/40940",
+    "repo": "keycloak",
+    "pr_number": 40940,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "The reader thread isn\u2019t waited for; flipping deletedAll to true and asserting immediately can race and miss exceptions added just after the flag change, making this test flaky.",
+    "extracted_ids": [
+      "deletedAll"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "tests/base/src/test/java/org/keycloak/tests/admin/group/GroupTest.java",
+    "anchor_entity": "createMultiDeleteMultiReadMulti",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "deletedAll"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/2",
+    "repo": "sentry",
+    "pr_number": 92393,
+    "bug_index": 0,
+    "severity": "Critical",
+    "comment": "OptimizedCursorPaginator negative-offset branch slices QuerySet with a negative start index",
+    "extracted_ids": [
+      "OptimizedCursorPaginator",
+      "QuerySet"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/spans/buffer.py",
+    "anchor_entity": "SpansBuffer",
+    "confidence": "high",
+    "anchor_method": "manual-cross-file",
+    "note": "Bug is in paginator code, not directly in changed files"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/2",
+    "repo": "sentry",
+    "pr_number": 92393,
+    "bug_index": 1,
+    "severity": "High",
+    "comment": "BasePaginator negative-offset branch slices QuerySet with a negative start index",
+    "extracted_ids": [
+      "BasePaginator",
+      "QuerySet"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/spans/buffer.py",
+    "anchor_entity": "SpansBuffer",
+    "confidence": "high",
+    "anchor_method": "manual-cross-file",
+    "note": "Bug is in paginator code, not directly in changed files"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/2",
+    "repo": "sentry",
+    "pr_number": 92393,
+    "bug_index": 2,
+    "severity": "High",
+    "comment": "OptimizedCursorPaginator.get_item_key uses floor/ceil on a datetime key (order_by='-datetime'), causing TypeError.",
+    "extracted_ids": [
+      "OptimizedCursorPaginator",
+      "TypeError",
+      "get_item_key"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/spans/buffer.py",
+    "anchor_entity": "SpansBuffer",
+    "confidence": "high",
+    "anchor_method": "manual-cross-file",
+    "note": "Bug is in paginator code, not directly in changed files"
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/67876",
+    "repo": "sentry",
+    "pr_number": 67876,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Null reference if github_authenticated_user state is missing",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/integrations/github/integration.py",
+    "anchor_entity": "dispatch",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "github_authenticated_user"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/67876",
+    "repo": "sentry",
+    "pr_number": 67876,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "OAuth state uses pipeline.signature (static) instead of a per-request random value",
+    "extracted_ids": [
+      "signature"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/integrations/github/integration.py",
+    "anchor_entity": "OAuthLoginView",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "signature"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/67876",
+    "repo": "sentry",
+    "pr_number": 67876,
+    "bug_index": 2,
+    "severity": "High",
+    "comment": "The code attempts to access integration.metadata[sender][login] without checking for the existence of the sender key. This causes a KeyError for integrations where the sender metadata was not set during creation",
+    "extracted_ids": [
+      "KeyError",
+      "metadata"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/integrations/github/integration.py",
+    "anchor_entity": "GitHubIntegrationProvider",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "metadata"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/5",
+    "repo": "sentry",
+    "pr_number": 5,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Breaking changes in error response format",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "static/app/views/dashboards/widgets/tableWidget/tableWidgetVisualization.stories.tsx",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/5",
+    "repo": "sentry",
+    "pr_number": 5,
+    "bug_index": 1,
+    "severity": "Medium",
+    "comment": "Detector validator uses wrong key when updating type",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "static/app/views/dashboards/widgets/tableWidget/tableWidgetVisualization.stories.tsx",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/ai-code-review-evaluation/sentry-greptile/pull/5",
+    "repo": "sentry",
+    "pr_number": 5,
+    "bug_index": 2,
+    "severity": "Low",
+    "comment": "Using zip(error_ids, events.values()) assumes the get_multi result preserves the input order; dict value order is not guaranteed to match error_ids, so event data can be paired with the wrong ID (missing nodes also shift alignment).",
+    "extracted_ids": [
+      "values",
+      "zip"
+    ],
+    "matched_entities": [],
+    "matched_files": [
+      "static/app/views/explore/hooks/useGetTraceItemAttributeValues.spec.tsx",
+      "static/app/views/explore/hooks/useGetTraceItemAttributeValues.tsx",
+      "static/app/views/explore/hooks/useTraceItemAttributeValues.spec.tsx",
+      "static/app/views/explore/hooks/useTraceItemAttributeValues.tsx"
+    ],
+    "anchor_file": "static/app/views/explore/hooks/useGetTraceItemAttributeValues.spec.tsx",
+    "anchor_entity": null,
+    "confidence": "medium"
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/93824",
+    "repo": "sentry",
+    "pr_number": 93824,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Inconsistent metric tagging with 'shard' and 'shards'",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/spans/consumers/process/flusher.py",
+    "anchor_entity": "SpanFlusher",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "shard",
+      "shards"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/93824",
+    "repo": "sentry",
+    "pr_number": 93824,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "Fixed sleep in tests can be flaky; wait on condition instead",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/spans/consumers/process/flusher.py",
+    "anchor_entity": "main",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/93824",
+    "repo": "sentry",
+    "pr_number": 93824,
+    "bug_index": 2,
+    "severity": "High",
+    "comment": "Because flusher processes are created via multiprocessing.get_context('spawn').Process, they are instances of multiprocessing.context.SpawnProcess, which on POSIX is not a subclass of multiprocessing.Process, so this isinstance check will always be false and hung processes won't be killed here.",
+    "extracted_ids": [
+      "POSIX",
+      "Process",
+      "SpawnProcess",
+      "context",
+      "get_context"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/spans/consumers/process/flusher.py",
+    "anchor_entity": "_create_process_for_shards",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "get_context",
+      "context",
+      "SpawnProcess",
+      "Process",
+      "spawn"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/93824",
+    "repo": "sentry",
+    "pr_number": 93824,
+    "bug_index": 3,
+    "severity": "Medium",
+    "comment": "Sleep in test_consumer.py won\u2019t actually wait because time.sleep was monkeypatched above; consider restoring sleep or using a different sync to ensure the flusher has time to process.",
+    "extracted_ids": [
+      "sleep"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "tests/sentry/spans/consumers/process/test_consumer.py",
+    "anchor_entity": null,
+    "confidence": "medium",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "test_consumer",
+      "sleep"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/93824",
+    "repo": "sentry",
+    "pr_number": 93824,
+    "bug_index": 4,
+    "severity": "Medium",
+    "comment": "Breaking out of the loop when the deadline has elapsed can skip terminating remaining flusher processes, potentially leaving them running after shutdown; consider ensuring termination is attempted even if the deadline is exceeded.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/spans/consumers/process/flusher.py",
+    "anchor_entity": "join",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/77754",
+    "repo": "sentry",
+    "pr_number": 77754,
+    "bug_index": 0,
+    "severity": "Medium",
+    "comment": "Shared mutable default in dataclass timestamp",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/integrations/services/assignment_source.py",
+    "anchor_entity": "AssignmentSource",
+    "confidence": "high",
+    "anchor_method": "most-changed-file"
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/77754",
+    "repo": "sentry",
+    "pr_number": 77754,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "The method name has a typo: test_from_dict_inalid_data should be test_from_dict_invalid_data.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "tests/sentry/integrations/services/test_assignment_source.py",
+    "anchor_entity": "test_from_dict_inalid_data",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "test_from_dict_inalid_data"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/77754",
+    "repo": "sentry",
+    "pr_number": 77754,
+    "bug_index": 2,
+    "severity": "Low",
+    "comment": "Method name says 'empty_array' but tests empty dict - consider renaming to 'test_from_dict_empty_dict' for clarity.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "tests/sentry/integrations/services/test_assignment_source.py",
+    "anchor_entity": "test_from_dict_empty_array",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "empty_array"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/77754",
+    "repo": "sentry",
+    "pr_number": 77754,
+    "bug_index": 3,
+    "severity": "Medium",
+    "comment": "to_dict() returns a datetime for queued; if this dict is passed in task kwargs (e.g., via apply_async), JSON serialization may fail depending on the serializer, which can cause enqueue errors.",
+    "extracted_ids": [
+      "JSON",
+      "kwargs",
+      "to_dict"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/integrations/utils/sync.py",
+    "anchor_entity": "sync_group_assignee_inbound",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "apply_async",
+      "to_dict",
+      "kwargs"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/80528",
+    "repo": "sentry",
+    "pr_number": 80528,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "The function modifies the config variable to include display values but then returns the original monitor.config instead of the modified version.",
+    "extracted_ids": [
+      "config"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/monitors/logic/incident_occurrence.py",
+    "anchor_entity": "get_monitor_environment_context",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "config"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/80528",
+    "repo": "sentry",
+    "pr_number": 80528,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "The code fetches MonitorCheckIn objects by ID when the required data already exists in previous_checkins. This creates an unnecessary database query.",
+    "extracted_ids": [
+      "MonitorCheckIn"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/monitors/logic/incidents.py",
+    "anchor_entity": "try_incident_threshold",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "MonitorCheckIn",
+      "previous_checkins"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/95633",
+    "repo": "sentry",
+    "pr_number": 95633,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "The queue.shutdown() method with 'immediate=False' parameter may not exist in the standard Python queue module. This could cause AttributeError at runtime. Verify the correct API or implement a custom shutdown mechanism.",
+    "extracted_ids": [
+      "API",
+      "AttributeError",
+      "shutdown"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "shutdown",
+        "file_path": "src/sentry/remote_subscriptions/consumers/queue_consumer.py"
+      },
+      {
+        "entity_name": "shutdown",
+        "file_path": "src/sentry/remote_subscriptions/consumers/result_consumer.py"
+      },
+      {
+        "entity_name": "test_thread_queue_parallel_graceful_shutdown",
+        "file_path": "tests/sentry/uptime/consumers/test_results_consumer.py"
+      }
+    ],
+    "matched_files": [
+      "src/sentry/remote_subscriptions/consumers/queue_consumer.py",
+      "src/sentry/remote_subscriptions/consumers/result_consumer.py",
+      "tests/sentry/uptime/consumers/test_results_consumer.py"
+    ],
+    "anchor_file": "src/sentry/remote_subscriptions/consumers/queue_consumer.py",
+    "anchor_entity": "shutdown",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/95633",
+    "repo": "sentry",
+    "pr_number": 95633,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "The magic number 50 for max_wait is used repeatedly throughout the tests. Consider extracting this as a named constant to improve maintainability.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "tests/sentry/uptime/consumers/test_results_consumer.py",
+    "anchor_entity": "test_thread_queue_parallel",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "max_wait"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/95633",
+    "repo": "sentry",
+    "pr_number": 95633,
+    "bug_index": 2,
+    "severity": "Low",
+    "comment": "The test test_thread_queue_parallel_error_handling has a docstring that doesn't match the test implementation.",
+    "extracted_ids": [],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "tests/sentry/uptime/consumers/test_results_consumer.py",
+    "anchor_entity": "test_thread_queue_parallel_error_handling",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "test_thread_queue_parallel_error_handling"
+    ]
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/80168",
+    "repo": "sentry",
+    "pr_number": 80168,
+    "bug_index": 0,
+    "severity": "High",
+    "comment": "MetricAlertDetectorHandler inherits from StatefulDetectorHandler but only contains pass, failing to implement its required abstract methods: counter_names (property), get_dedupe_value(), get_group_key_values(), and build_occurrence_and_event_data(). This will cause a TypeError at runtime when the cl",
+    "extracted_ids": [
+      "MetricAlertDetectorHandler",
+      "StatefulDetectorHandler",
+      "TypeError",
+      "build_occurrence_and_event_data",
+      "counter_names",
+      "get_dedupe_value",
+      "get_group_key_values"
+    ],
+    "matched_entities": [
+      {
+        "entity_name": "MetricAlertDetectorHandler",
+        "file_path": "src/sentry/incidents/grouptype.py"
+      },
+      {
+        "entity_name": "StatefulDetectorHandler",
+        "file_path": "src/sentry/workflow_engine/processors/detector.py"
+      },
+      {
+        "entity_name": "StatefulDetectorHandlerTestMixin",
+        "file_path": "tests/sentry/workflow_engine/processors/test_detector.py"
+      },
+      {
+        "entity_name": "build_occurrence_and_event_data",
+        "file_path": "src/sentry/workflow_engine/processors/detector.py"
+      },
+      {
+        "entity_name": "build_occurrence_and_event_data",
+        "file_path": "tests/sentry/workflow_engine/processors/test_detector.py"
+      }
+    ],
+    "matched_files": [
+      "src/sentry/incidents/grouptype.py",
+      "src/sentry/workflow_engine/processors/detector.py",
+      "tests/sentry/workflow_engine/processors/test_detector.py"
+    ],
+    "anchor_file": "src/sentry/incidents/grouptype.py",
+    "anchor_entity": "MetricAlertDetectorHandler",
+    "confidence": "high"
+  },
+  {
+    "pr_url": "https://github.com/getsentry/sentry/pull/80168",
+    "repo": "sentry",
+    "pr_number": 80168,
+    "bug_index": 1,
+    "severity": "Low",
+    "comment": "Docstring says this returns a list of DetectorEvaluationResult, but the method now returns a dict keyed by DetectorGroupKey. Consider updating the docstring to match the new return type.",
+    "extracted_ids": [
+      "DetectorEvaluationResult",
+      "DetectorGroupKey"
+    ],
+    "matched_entities": [],
+    "matched_files": [],
+    "anchor_file": "src/sentry/workflow_engine/processors/detector.py",
+    "anchor_entity": "evaluate",
+    "confidence": "high",
+    "anchor_method": "keyword-file-match",
+    "matched_keywords": [
+      "DetectorEvaluationResult",
+      "DetectorGroupKey"
+    ]
+  }
+]
