@@ -200,11 +200,23 @@ fn is_test_file(file_path: &str) -> bool {
 pub fn is_public_api(entity_type: &str, entity_name: &str, content: Option<&str>) -> bool {
     // Check content for explicit pub/export markers
     if let Some(content) = content {
-        let first_line = content.lines().next().unwrap_or("");
-        if first_line.starts_with("pub ")
-            || first_line.starts_with("pub(crate)")
-            || first_line.starts_with("export ")
-            || first_line.starts_with("module.exports")
+        let first_meaningful = content
+            .lines()
+            .map(str::trim)
+            .find(|line| {
+                !line.is_empty()
+                    && !line.starts_with("//")
+                    && !line.starts_with("/*")
+                    && !line.starts_with('*')
+                    && !line.starts_with('@')
+            })
+            .unwrap_or("");
+
+        if first_meaningful.starts_with("pub ")
+            || first_meaningful.starts_with("pub(crate)")
+            || first_meaningful.starts_with("export ")
+            || first_meaningful.starts_with("module.exports")
+            || first_meaningful.starts_with("public ")
         {
             return true;
         }
@@ -321,5 +333,26 @@ mod tests {
         );
         let score = compute_risk_score(&review, 100);
         assert!(score >= 0.5, "Expected High+, got score={score}");
+    }
+
+    #[test]
+    fn is_public_api_detects_rust_pub() {
+        assert!(is_public_api(
+            "function",
+            "foo",
+            Some("pub fn foo() -> i32 { 1 }")
+        ));
+    }
+
+    #[test]
+    fn is_public_api_detects_java_public_after_annotation() {
+        let content = "@Override\npublic Long getCount() {\n    return 1L;\n}";
+        assert!(is_public_api("method", "getCount", Some(content)));
+    }
+
+    #[test]
+    fn is_public_api_does_not_mark_private_java_method_public() {
+        let content = "@Override\nprivate Long getCount() {\n    return 1L;\n}";
+        assert!(!is_public_api("method", "getCount", Some(content)));
     }
 }
