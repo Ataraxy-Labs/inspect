@@ -74,8 +74,8 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         };
 
         let classification = classify_change(change);
-        let after_content_ref = change.after_content.as_deref();
-        let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content_ref);
+        let api_content_ref = change.after_content.as_deref().or(change.before_content.as_deref());
+        let pub_api = is_public_api(&change.entity_type, &change.entity_name, api_content_ref);
 
         let (start_line, end_line) = graph
             .entities
@@ -213,8 +213,8 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         let mut finding_boost: FindingsMap<&str, f64> = FindingsMap::new();
         for f in &findings {
             let severity_bonus = match f.severity {
-                crate::detect::Severity::Critical => 0.15,
-                crate::detect::Severity::High => 0.12,
+                crate::detect::Severity::Critical => 0.18,
+                crate::detect::Severity::High => 0.14,
                 crate::detect::Severity::Medium => 0.07,
                 crate::detect::Severity::Low => 0.04,
             };
@@ -360,8 +360,8 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
 
     for change in &diff.changes {
         let classification = classify_change(change);
-        let after_content_ref = change.after_content.as_deref();
-        let pub_api = is_public_api(&change.entity_type, &change.entity_name, after_content_ref);
+        let api_content_ref = change.after_content.as_deref().or(change.before_content.as_deref());
+        let pub_api = is_public_api(&change.entity_type, &change.entity_name, api_content_ref);
 
         let mut review = EntityReview {
             entity_id: change.entity_id.clone(),
@@ -418,8 +418,8 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
         let mut finding_boost: FindingsMap<&str, f64> = FindingsMap::new();
         for f in &findings {
             let severity_bonus = match f.severity {
-                crate::detect::Severity::Critical => 0.15,
-                crate::detect::Severity::High => 0.12,
+                crate::detect::Severity::Critical => 0.18,
+                crate::detect::Severity::High => 0.14,
                 crate::detect::Severity::Medium => 0.07,
                 crate::detect::Severity::Low => 0.04,
             };

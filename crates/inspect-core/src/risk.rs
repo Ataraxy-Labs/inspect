@@ -97,7 +97,7 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
 
     // Cosmetic-only discount (structural_hash unchanged)
     if review.structural_change == Some(false) {
-        score *= 0.2;
+        score *= 0.25;
     }
 
     // Test-file penalty: mild — test code has real bugs too
