@@ -211,6 +211,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     if !findings.is_empty() {
         use std::collections::HashMap as FindingsMap;
         let mut finding_boost: FindingsMap<&str, f64> = FindingsMap::new();
+        let mut has_strong_finding: FindingsMap<&str, bool> = FindingsMap::new();
         for f in &findings {
             let severity_bonus = match f.severity {
                 crate::detect::Severity::Critical => 0.18,
@@ -221,11 +222,41 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             let boost = severity_bonus * f.confidence;
             let entry = finding_boost.entry(f.entity_id.as_str()).or_insert(0.0);
             *entry = (*entry + boost).min(0.30); // aggressive cap — findings are our best signal
+
+            if matches!(f.severity, crate::detect::Severity::Critical | crate::detect::Severity::High)
+                && f.confidence >= 0.6
+            {
+                has_strong_finding.insert(f.entity_id.as_str(), true);
+            }
         }
         for review in &mut reviews {
             if let Some(&boost) = finding_boost.get(review.entity_id.as_str()) {
                 review.risk_score = (review.risk_score + boost).min(1.0);
                 review.risk_level = score_to_level(review.risk_score);
+            }
+        }
+
+        // Preserve per-file diversity, but avoid crushing entities with strong
+        // deterministic evidence when they are second-in-file.
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        let mut top_by_file: HashMap<String, f64> = HashMap::new();
+        for review in reviews.iter() {
+            top_by_file
+                .entry(review.file_path.clone())
+                .or_insert(review.risk_score);
+        }
+        for review in reviews.iter_mut() {
+            if has_strong_finding
+                .get(review.entity_id.as_str())
+                .copied()
+                .unwrap_or(false)
+            {
+                if let Some(&top_score) = top_by_file.get(&review.file_path) {
+                    if review.risk_score < top_score {
+                        review.risk_score *= 2.0; // partial undo of later 0.15 per-file penalty
+                        review.risk_level = score_to_level(review.risk_score);
+                    }
+                }
             }
         }
     }
