@@ -259,6 +259,33 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
+    // Phase 9: Per-directory diversity.
+    // In large PRs, many entities from the same directory cluster in the top.
+    // Apply a mild discount after the 3rd entity per directory to spread
+    // the top-20 across more parts of the codebase.
+    {
+        use std::collections::HashMap;
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        let max_per_dir: usize = 3;
+        let mut dir_counts: HashMap<String, usize> = HashMap::new();
+        let mut to_discount: Vec<usize> = Vec::new();
+        for (i, r) in reviews.iter().enumerate() {
+            let dir = match r.file_path.rfind('/') {
+                Some(pos) => &r.file_path[..pos],
+                None => "",
+            };
+            let count = dir_counts.entry(dir.to_string()).or_insert(0);
+            *count += 1;
+            if *count > max_per_dir {
+                to_discount.push(i);
+            }
+        }
+        for idx in to_discount {
+            reviews[idx].risk_score *= 0.6;
+            reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
+        }
+    }
+
     reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
     let total_ms = total_start.elapsed().as_millis() as u64;
