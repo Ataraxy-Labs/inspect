@@ -266,7 +266,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     {
         use std::collections::HashMap;
         reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-        let max_per_dir: usize = 3;
+        let max_per_dir: usize = 2;
         let mut dir_counts: HashMap<String, usize> = HashMap::new();
         let mut to_discount: Vec<usize> = Vec::new();
         for (i, r) in reviews.iter().enumerate() {
