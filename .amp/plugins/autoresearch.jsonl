@@ -1,0 +1,2 @@
+{"type":"config","name":"Improve bug recall@20 for inspect deterministic pipeline","metric_name":"neg_recall","metric_unit":"","direction":"lower","timestamp":"2026-03-19T16:29:14.658Z"}
+{"timestamp":"2026-03-19T16:31:09.621Z","commit":"b4beb4a","metric":-0.8678,"status":"keep","description":"Baseline: 86.78% mean recall, 111/128 bugs hit","metrics":{"bugs_hit":111,"cal_recall":0.9677,"discourse_recall":0.8214,"grafana_recall":1,"keycloak_recall":0.75,"overall_recall":0.8672,"sentry_recall":0.8}}
