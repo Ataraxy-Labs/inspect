@@ -134,6 +134,30 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
 
     reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
+    // Singleton-file boost: entities that are the only (or one of few) changed
+    // entities in their file are more likely to be focal points of the change
+    {
+        let mut entities_per_file: HashMap<String, usize> = HashMap::new();
+        for review in reviews.iter() {
+            *entities_per_file
+                .entry(review.file_path.clone())
+                .or_insert(0) += 1;
+        }
+        for review in reviews.iter_mut() {
+            let count = entities_per_file
+                .get(&review.file_path)
+                .copied()
+                .unwrap_or(1);
+            if count == 1 {
+                review.risk_score = (review.risk_score * 1.08).min(1.0);
+            } else if count == 2 {
+                review.risk_score = (review.risk_score * 1.04).min(1.0);
+            }
+            review.risk_level = score_to_level(review.risk_score);
+        }
+        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+    }
+
     // File diversity: progressively demote non-top entities within the same file
     // The 2nd entity in a file gets a mild discount, 3rd gets more, etc.
     // This pushes the top-20 towards covering more distinct files.

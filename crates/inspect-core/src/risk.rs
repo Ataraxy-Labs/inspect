@@ -75,7 +75,7 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
         };
         let blast_ratio = effective_blast as f64 / total_entities as f64;
         // Cap blast contribution to prevent it from drowning other signals
-        score += (blast_ratio.sqrt() * 0.30).min(0.20);
+        score += (blast_ratio.sqrt() * 0.30).min(0.15);
     }
 
     // Dependent count: logarithmic scaling
