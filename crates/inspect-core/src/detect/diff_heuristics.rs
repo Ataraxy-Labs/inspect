@@ -29,6 +29,7 @@ pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
         check_null_return_introduced(change, before, after, &mut findings);
         check_error_path_changed(change, before, after, &mut findings);
         check_variable_near_miss(change, before, &before_lines, after, &after_lines, &mut findings);
+        check_argument_order_swap(change, &before_lines, &after_lines, &mut findings);
         check_boolean_polarity_flip(change, before, after, &mut findings);
     }
 
@@ -426,6 +427,70 @@ fn check_boolean_polarity_flip(
     }
 }
 
+/// Detect suspicious call-site argument reordering (e.g. `foo(a, b)` -> `foo(b, a)`).
+/// This flags positional-argument swaps where callee and argument set are unchanged.
+fn check_argument_order_swap(
+    change: &SemanticChange,
+    before_lines: &[&str],
+    after_lines: &[&str],
+    findings: &mut Vec<DetectorFinding>,
+) {
+    let paired = before_lines.len().min(after_lines.len());
+    for line_num in 0..paired {
+        let before_line = before_lines[line_num].trim();
+        let after_line = after_lines[line_num].trim();
+        if before_line.is_empty() || after_line.is_empty() || before_line == after_line {
+            continue;
+        }
+
+        let Some((before_callee, before_args)) = parse_simple_call(before_line) else {
+            continue;
+        };
+        let Some((after_callee, after_args)) = parse_simple_call(after_line) else {
+            continue;
+        };
+
+        if before_callee != after_callee
+            || before_args.len() != after_args.len()
+            || before_args.len() < 2
+            || before_args == after_args
+        {
+            continue;
+        }
+
+        if before_args.iter().any(|a| looks_named_argument(a))
+            || after_args.iter().any(|a| looks_named_argument(a))
+        {
+            continue;
+        }
+
+        let mut before_sorted = before_args.clone();
+        let mut after_sorted = after_args.clone();
+        before_sorted.sort();
+        after_sorted.sort();
+        if before_sorted != after_sorted {
+            continue;
+        }
+
+        let Some((left, right)) = detect_single_swap(&before_args, &after_args) else {
+            continue;
+        };
+
+        findings.push(make_finding(
+            "argument-order-swap",
+            &format!(
+                "Call arguments swapped for `{}`: `{}` <-> `{}` — verify parameter order",
+                before_callee, before_args[left], before_args[right]
+            ),
+            0.68,
+            Severity::High,
+            change,
+            after_line,
+            line_num + 1,
+        ));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -665,6 +730,170 @@ fn is_keyword(word: &str) -> bool {
             | "None"
             | "nil"
     )
+}
+
+fn parse_simple_call(line: &str) -> Option<(String, Vec<String>)> {
+    if line.starts_with("if ")
+        || line.starts_with("if(")
+        || line.starts_with("while ")
+        || line.starts_with("while(")
+        || line.starts_with("for ")
+        || line.starts_with("for(")
+        || line.starts_with("switch ")
+        || line.starts_with("switch(")
+        || line.starts_with("return ")
+    {
+        return None;
+    }
+
+    let open = line.find('(')?;
+    let close = find_matching_paren(line, open)?;
+    if close <= open {
+        return None;
+    }
+
+    let callee_raw = line[..open].trim();
+    if callee_raw.is_empty() {
+        return None;
+    }
+    let callee = extract_callee_token(callee_raw)?;
+
+    let args_src = &line[open + 1..close];
+    let args = split_top_level_args(args_src)
+        .into_iter()
+        .map(|arg| normalize_inline_whitespace(arg.trim()))
+        .filter(|arg| !arg.is_empty())
+        .collect::<Vec<_>>();
+
+    Some((callee.to_string(), args))
+}
+
+fn extract_callee_token(s: &str) -> Option<&str> {
+    let mut end = s.len();
+    while end > 0 {
+        let ch = s[..end].chars().next_back()?;
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == ':' {
+            break;
+        }
+        end -= ch.len_utf8();
+    }
+    if end == 0 {
+        return None;
+    }
+
+    let mut start = end;
+    while start > 0 {
+        let ch = s[..start].chars().next_back()?;
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == ':' {
+            start -= ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    let token = &s[start..end];
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
+}
+
+fn find_matching_paren(line: &str, open_idx: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (idx, ch) in line.char_indices().skip(open_idx) {
+        if ch == '(' {
+            depth += 1;
+        } else if ch == ')' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(idx);
+            }
+        }
+    }
+    None
+}
+
+fn split_top_level_args(args: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut brace_depth = 0usize;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaped = false;
+
+    for (idx, ch) in args.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if !in_double_quote && ch == '\'' {
+            in_single_quote = !in_single_quote;
+            continue;
+        }
+        if !in_single_quote && ch == '"' {
+            in_double_quote = !in_double_quote;
+            continue;
+        }
+        if in_single_quote || in_double_quote {
+            continue;
+        }
+
+        match ch {
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '{' => brace_depth += 1,
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            ',' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                out.push(&args[start..idx]);
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+
+    out.push(&args[start..]);
+    out
+}
+
+fn normalize_inline_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn looks_named_argument(arg: &str) -> bool {
+    arg.contains("=")
+        && !arg.contains("==")
+        && !arg.contains("!=")
+        && !arg.contains("<=")
+        && !arg.contains(">=")
+}
+
+fn detect_single_swap(before: &[String], after: &[String]) -> Option<(usize, usize)> {
+    let mismatches: Vec<usize> = (0..before.len())
+        .filter(|&i| before[i] != after[i])
+        .collect();
+
+    if mismatches.len() != 2 {
+        return None;
+    }
+
+    let i = mismatches[0];
+    let j = mismatches[1];
+    if before[i] == after[j] && before[j] == after[i] {
+        Some((i, j))
+    } else {
+        None
+    }
 }
 
 fn levenshtein(a: &str, b: &str) -> usize {
@@ -994,6 +1223,45 @@ mod tests {
         assert!(
             !findings.iter().any(|f| f.rule_id == "boolean-polarity-flip"),
             "Should not detect polarity flip when body also changed: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_argument_order_swap_detected() {
+        let before = "notify(userId, projectId);";
+        let after = "notify(projectId, userId);";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "argument-order-swap"),
+            "Should detect argument-order swap: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_argument_order_swap_not_flagged_for_callee_change() {
+        let before = "notify(userId, projectId);";
+        let after = "emit(projectId, userId);";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "argument-order-swap"),
+            "Should not detect argument-order swap when callee changed: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_argument_order_swap_not_flagged_for_named_args() {
+        let before = "notify(user_id=userId, project_id=projectId);";
+        let after = "notify(project_id=projectId, user_id=userId);";
+        let change = make_modified(before, after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "argument-order-swap"),
+            "Should not detect argument-order swap for named args: {:?}",
             findings
         );
     }
