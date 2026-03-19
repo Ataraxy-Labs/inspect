@@ -133,10 +133,10 @@ fn classification_weight(c: ChangeClassification) -> f64 {
         ChangeClassification::Text => 0.0,
         ChangeClassification::Syntax => 0.08,
         ChangeClassification::Functional => 0.22,
-        ChangeClassification::TextSyntax => 0.1,
+        ChangeClassification::TextSyntax => 0.10,
         ChangeClassification::TextFunctional => 0.22,
-        ChangeClassification::SyntaxFunctional => 0.25,
-        ChangeClassification::TextSyntaxFunctional => 0.28,
+        ChangeClassification::SyntaxFunctional => 0.30,
+        ChangeClassification::TextSyntaxFunctional => 0.32,
     }
 }
 

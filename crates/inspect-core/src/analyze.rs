@@ -168,7 +168,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             };
             let boost = severity_bonus * f.confidence;
             let entry = finding_boost.entry(f.entity_id.as_str()).or_insert(0.0);
-            *entry = (*entry + boost).min(0.25); // higher cap for more discrimination
+            *entry = (*entry + boost).min(0.35); // aggressive cap — findings are our best signal
         }
         for review in &mut reviews {
             if let Some(&boost) = finding_boost.get(review.entity_id.as_str()) {
