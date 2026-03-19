@@ -75,7 +75,7 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
         };
         let blast_ratio = effective_blast as f64 / total_entities as f64;
         // Cap blast contribution to prevent it from drowning other signals
-        score += (blast_ratio.sqrt() * 0.30).min(0.15);
+        score += (blast_ratio.sqrt() * 0.30).min(0.20);
     }
 
     // Dependent count: logarithmic scaling
@@ -118,13 +118,6 @@ pub fn compute_risk_score(review: &EntityReview, total_entities: usize) -> f64 {
     let etype = review.entity_type.as_str();
     if matches!(etype, "export" | "type" | "interface" | "property" | "field") {
         score *= 0.6;
-    }
-
-    // Class-level entity discount: in Java/TS, the parser often extracts
-    // both the class AND its methods. The class entity is coarse-grained
-    // and redundant with its methods — mild discount to prefer methods.
-    if etype == "class" && review.dependent_count <= 2 {
-        score *= 0.75;
     }
 
     score.min(1.0)

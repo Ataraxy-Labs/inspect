@@ -134,56 +134,25 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
 
     reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
 
-    // Singleton-file boost: entities that are the only (or one of few) changed
-    // entities in their file are more likely to be focal points of the change
+    // File diversity: mildly demote non-top entities within the same file
+    // This pushes the top-20 towards covering more distinct files,
+    // reducing cases where many entities from one file crowd out bugs in other files
     {
-        let mut entities_per_file: HashMap<String, usize> = HashMap::new();
+        let mut top_per_file: HashMap<String, f64> = HashMap::new();
         for review in reviews.iter() {
-            *entities_per_file
+            let entry = top_per_file
                 .entry(review.file_path.clone())
-                .or_insert(0) += 1;
+                .or_insert(0.0_f64);
+            if review.risk_score > *entry {
+                *entry = review.risk_score;
+            }
         }
         for review in reviews.iter_mut() {
-            let count = entities_per_file
-                .get(&review.file_path)
-                .copied()
-                .unwrap_or(1);
-            if count == 1 {
-                review.risk_score = (review.risk_score * 1.08).min(1.0);
-            } else if count == 2 {
-                review.risk_score = (review.risk_score * 1.04).min(1.0);
-            }
-            review.risk_level = score_to_level(review.risk_score);
-        }
-        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-    }
-
-    // File diversity: progressively demote non-top entities within the same file
-    // The 2nd entity in a file gets a mild discount, 3rd gets more, etc.
-    // This pushes the top-20 towards covering more distinct files.
-    {
-        // First, compute the rank of each entity within its file (by score)
-        let mut file_rank: HashMap<String, Vec<usize>> = HashMap::new();
-        for (idx, review) in reviews.iter().enumerate() {
-            file_rank
-                .entry(review.file_path.clone())
-                .or_default()
-                .push(idx);
-        }
-        // file_rank already in score-descending order since reviews is sorted
-        let mut entity_file_rank: Vec<usize> = vec![0; reviews.len()];
-        for indices in file_rank.values() {
-            for (rank, &idx) in indices.iter().enumerate() {
-                entity_file_rank[idx] = rank; // 0 = top entity in file
-            }
-        }
-        for (idx, review) in reviews.iter_mut().enumerate() {
-            let rank = entity_file_rank[idx];
-            if rank > 0 {
-                // Progressive penalty: 0.90 for 2nd, 0.81 for 3rd, 0.73 for 4th, ...
-                let discount = 0.85_f64.powi(rank as i32);
-                review.risk_score *= discount;
-                review.risk_level = score_to_level(review.risk_score);
+            if let Some(&top_score) = top_per_file.get(&review.file_path) {
+                if review.risk_score < top_score {
+                    review.risk_score *= 0.85;
+                    review.risk_level = score_to_level(review.risk_score);
+                }
             }
         }
         reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
@@ -223,7 +192,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             };
             let boost = severity_bonus * f.confidence;
             let entry = finding_boost.entry(f.entity_id.as_str()).or_insert(0.0);
-            *entry = (*entry + boost).min(0.35); // aggressive cap — findings are our best signal
+            *entry = (*entry + boost).min(0.50); // aggressive cap — findings are our best signal
         }
         for review in &mut reviews {
             if let Some(&boost) = finding_boost.get(review.entity_id.as_str()) {
@@ -267,31 +236,25 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
-    // Phase 8: Per-file diversity constraint (progressive).
-    // Aggressively discount 2nd+ entities from the same file to ensure
-    // top-20 covers many distinct files. Uses progressive decay so 2nd
-    // entity from a high-signal file still has a chance, but 3rd+ are
-    // heavily penalized.
+    // Phase 8: Per-file diversity constraint.
+    // If too many entities from the same file cluster at the top, discount
+    // the excess so entities from other files get a chance. This prevents
+    // a single high-blast-radius file from monopolizing all top-20 slots.
     {
         use std::collections::HashMap;
         reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        let max_per_file = 1;
         let mut file_counts: HashMap<&str, usize> = HashMap::new();
-        let mut discounts: Vec<(usize, f64)> = Vec::new();
+        let mut to_discount: Vec<usize> = Vec::new();
         for (i, r) in reviews.iter().enumerate() {
             let count = file_counts.entry(&r.file_path).or_insert(0);
             *count += 1;
-            if *count > 1 {
-                // Progressive: 2nd=0.30, 3rd=0.10, 4th+=0.05
-                let factor = match *count {
-                    2 => 0.30,
-                    3 => 0.10,
-                    _ => 0.05,
-                };
-                discounts.push((i, factor));
+            if *count > max_per_file {
+                to_discount.push(i);
             }
         }
-        for (idx, factor) in discounts {
-            reviews[idx].risk_score *= factor;
+        for idx in to_discount {
+            reviews[idx].risk_score *= 0.15;
             reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
         }
     }
