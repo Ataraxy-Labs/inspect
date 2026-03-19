@@ -73,17 +73,22 @@ Outputs `METRIC neg_recall=<value>` plus secondary metrics. Takes ~60s.
 - Phase 2: Added generic-name penalty, test-file penalty (0.3x), sqrt blast radius scaling
 - Enriched 113/128 anchors to entity-level for stricter evaluation
 - **Exp 4 (KEPT)**: Cap blast radius contribution at 0.20, add dependency_count complexity bonus (ln*0.04, cap 0.12), relax test penalty from 0.3→0.7 — gained +2 bugs (keycloak), 111→113
-- **Exp 5 (discarded)**: Boost Modified/Deleted change type weights — no effect
-- **Exp 6 (discarded)**: Further lower blast cap to 0.15, test penalty to 0.85 — no effect
-- **Key insight**: Weight tuning alone hits a wall. All entities in same file share blast_radius, so they sort identically. The remaining 15 misses need structural scoring changes or new signals, not just weight adjustments.
-- **IMPORTANT**: autoresearch.sh was missing `cargo build --release` — experiments 2-3 were stale! Fixed in exp 4.
+- **Exp 11 (KEPT)**: Chunk entity penalty 0.5x for unnamed "lines X-Y" entities — quality improvement
+- **Exp 16 (KEPT)**: Dedup same-name entities in same file (0.5x discount for duplicates) — quality improvement
+- **Exp 18 (KEPT)**: Increase finding boost severity bonuses +50% and cap 0.15→0.25 — gained +1 discourse bug, 113→114
+- Weight tuning alone hits a wall: all entities in same file share blast_radius, changing weights lifts all equally
+- Test penalty tuning irrelevant: test entities have 0 blast/deps, the multiplicative penalty doesn't help
+- Structural change bonus: adding +0.05-0.06 for structural_change==true caused regressions
+
+## Current: -0.8916 (89.16% mean recall, 114/128 bugs hit)
+- Per-fold: cal.com 96.8%, discourse 85.7%, grafana 100%, keycloak 83.3%, sentry 80.0%
+
+## Remaining 14 Misses
+- 7 FILE-ONLY (CSS/config/lockfile/spec) — structurally impossible without parser changes
+- 7 with entity names ranked 27-210 — too far from top-20 cutoff in large PRs
 
 ## Ideas to Try
-1. **Content-length signal**: Larger functions have more surface area for bugs — use line count as a tiebreaker
-2. **Structural change boost for Modified**: If structural_change == Some(true), give extra boost since the code logic actually changed
-3. **Named entity boost over chunks**: Entities with real names (not "lines 81-100") should score higher than chunk placeholders
-4. **Per-file entity diversity**: If multiple entities in same file, boost the one with most dependents/dependencies as the "representative"
-5. **Increase classification weights**: Functional classification at 0.22 may be too low — try 0.30+
-6. ~~Test-file penalty tuning~~ (diminishing returns)
-7. ~~Blast radius cap tuning~~ (diminishing returns)
-8. **New detector signals**: Detect async-in-forEach, case-sensitivity issues, type confusion patterns
+1. **New detectors**: Write detectors that fire on the specific bug patterns in the missed entities — this would boost those entities via the finding boost mechanism
+2. ~~Weight tuning~~ (exhausted, diminishing returns)
+3. ~~Test penalty tuning~~ (exhausted)
+4. ~~Structural change bonus~~ (caused regressions)
