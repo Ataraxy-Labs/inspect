@@ -181,31 +181,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         reviews.push(review);
     }
 
-    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-
-    // File diversity: mildly demote non-top entities within the same file
-    // This pushes the top-20 towards covering more distinct files,
-    // reducing cases where many entities from one file crowd out bugs in other files
-    {
-        let mut top_per_file: HashMap<String, f64> = HashMap::new();
-        for review in reviews.iter() {
-            let entry = top_per_file
-                .entry(review.file_path.clone())
-                .or_insert(0.0_f64);
-            if review.risk_score > *entry {
-                *entry = review.risk_score;
-            }
-        }
-        for review in reviews.iter_mut() {
-            if let Some(&top_score) = top_per_file.get(&review.file_path) {
-                if review.risk_score < top_score {
-                    review.risk_score *= 0.85;
-                    review.risk_level = score_to_level(review.risk_score);
-                }
-            }
-        }
-        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-    }
+    sort_reviews_deterministic(&mut reviews);
 
     let groups = untangle(&reviews, &dependency_edges);
 
@@ -220,33 +196,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
-    // Group-aware score elevation: entities in the same untangle group
-    // as a high-scoring entity get a small boost. This captures "guilt by
-    // association" — if entity A is related to high-risk entity B, A
-    // is more likely to be involved in the same bug.
-    {
-        let mut group_max: HashMap<usize, f64> = HashMap::new();
-        for review in reviews.iter() {
-            if review.group_id > 0 {
-                let entry = group_max.entry(review.group_id).or_insert(0.0_f64);
-                if review.risk_score > *entry {
-                    *entry = review.risk_score;
-                }
-            }
-        }
-        for review in reviews.iter_mut() {
-            if review.group_id > 0 {
-                if let Some(&max_score) = group_max.get(&review.group_id) {
-                    if review.risk_score < max_score && max_score > 0.3 {
-                        let gap = max_score - review.risk_score;
-                        review.risk_score += gap * 0.15;
-                        review.risk_level = score_to_level(review.risk_score);
-                    }
-                }
-            }
-        }
-        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-    }
+    sort_reviews_deterministic(&mut reviews);
 
     let scoring_ms = scoring_start.elapsed().as_millis() as u64;
 
@@ -270,7 +220,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             };
             let boost = severity_bonus * f.confidence;
             let entry = finding_boost.entry(f.entity_id.as_str()).or_insert(0.0);
-            *entry = (*entry + boost).min(0.30); // aggressive cap — findings are our best signal
+            *entry = (*entry + boost).min(0.30);
 
             if matches!(f.severity, crate::detect::Severity::Critical | crate::detect::Severity::High)
                 && f.confidence >= 0.6
@@ -285,9 +235,10 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             }
         }
 
-        // Preserve per-file diversity, but avoid crushing entities with strong
-        // deterministic evidence when they are second-in-file.
-        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        // Entities with strong detector evidence that are second-in-file get a
+        // pre-boost to counteract the per-file diversity penalty. Each finding
+        // is independent evidence worth reviewing regardless of file rank.
+        sort_reviews_deterministic(&mut reviews);
         let mut top_by_file: HashMap<String, f64> = HashMap::new();
         for review in reviews.iter() {
             top_by_file
@@ -302,7 +253,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             {
                 if let Some(&top_score) = top_by_file.get(&review.file_path) {
                     if review.risk_score < top_score {
-                        review.risk_score *= 2.0; // partial undo of later 0.15 per-file penalty
+                        review.risk_score *= 2.0;
                         review.risk_level = score_to_level(review.risk_score);
                     }
                 }
@@ -310,47 +261,13 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
-    // Phase 7: Penalize duplicate-name entities in the same file.
-    // When multiple entities share the same (file, name) (e.g., 4 `updatedValue`
-    // variables in MultiEmail.tsx), discount the duplicates so they don't all
-    // occupy top-20 slots. Keep the highest-scoring one at full score.
-    {
-        use std::collections::HashMap;
-        // Find groups of (file, name) duplicates — collect indices
-        let mut groups: HashMap<(String, String), Vec<usize>> = HashMap::new();
-        for (i, r) in reviews.iter().enumerate() {
-            groups.entry((r.file_path.clone(), r.entity_name.clone()))
-                .or_default()
-                .push(i);
-        }
-        // Collect indices to discount (drop groups reference before mutating)
-        let mut to_discount: Vec<usize> = Vec::new();
-        for (_, indices) in &groups {
-            if indices.len() <= 1 {
-                continue;
-            }
-            let mut sorted_indices = indices.clone();
-            sorted_indices.sort_by(|a, b| {
-                reviews[*b].risk_score.partial_cmp(&reviews[*a].risk_score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            // Skip the first (highest score), discount the rest
-            to_discount.extend_from_slice(&sorted_indices[1..]);
-        }
-        drop(groups);
-        for idx in to_discount {
-            reviews[idx].risk_score *= 0.5;
-            reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
-        }
-    }
-
     // Phase 8: Per-file diversity constraint.
-    // If too many entities from the same file cluster at the top, discount
-    // the excess so entities from other files get a chance. This prevents
-    // a single high-blast-radius file from monopolizing all top-20 slots.
+    // The k-th entity from a file is discounted by 1/k² (submodular diminishing
+    // returns). This prevents a single high-blast-radius file from monopolizing
+    // all top-20 slots while still allowing exceptional 2nd entities through.
     {
         use std::collections::HashMap;
-        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        sort_reviews_deterministic(&mut reviews);
         let max_per_file = 1;
         let mut file_counts: HashMap<&str, usize> = HashMap::new();
         let mut to_discount: Vec<(usize, f64)> = Vec::new();
@@ -374,36 +291,38 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
-    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
-
     // Phase 9: Cold-start file bonus.
-    // New (added) or fully deleted files with low graph connectivity are
-    // "graph-blind" — their entities lack blast_radius/dependent signals.
-    // Compensate with aggregate evidence from the file's entity scores.
-    // For spec/test/story files, also transfer a bonus from the paired
-    // source file if it's changed in the same PR.
+    // Files with zero graph connectivity (new, deleted, or parseable but with
+    // no cross-file references) are "graph-blind" — their entities lack
+    // blast_radius/dependent signals. Compensate proportionally to the file's
+    // intrinsic entity scores. For spec/test/story files, also inherit a
+    // fraction of the paired source file's score.
     {
         use std::collections::HashMap;
 
         struct FileInfo {
-            scores: Vec<f64>,
+            max_score: f64,
             max_blast: usize,
             max_dependents: usize,
             all_added: bool,
             all_deleted: bool,
+            entity_count: usize,
         }
         let mut file_info: HashMap<String, FileInfo> = HashMap::new();
         for r in reviews.iter() {
             let entry = file_info
                 .entry(r.file_path.clone())
                 .or_insert(FileInfo {
-                    scores: Vec::new(),
+                    max_score: 0.0,
                     max_blast: 0,
                     max_dependents: 0,
                     all_added: true,
                     all_deleted: true,
+                    entity_count: 0,
                 });
-            entry.scores.push(r.risk_score);
+            if r.risk_score > entry.max_score {
+                entry.max_score = r.risk_score;
+            }
             if r.blast_radius > entry.max_blast {
                 entry.max_blast = r.blast_radius;
             }
@@ -416,42 +335,32 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
             if r.change_type != ChangeType::Deleted {
                 entry.all_deleted = false;
             }
+            entry.entity_count += 1;
         }
 
         let mut file_bonus: HashMap<String, f64> = HashMap::new();
         for (file_path, info) in &file_info {
-            // Only apply cold-start bonus to aux files (spec/test/story)
-            // that are newly added or fully deleted with low graph signal.
-            // Non-aux source files already get reasonable scoring from the graph.
             let is_aux = file_path.contains(".spec.")
                 || file_path.contains(".stories.")
                 || file_path.contains(".test.");
+
+            // Eligibility: graph-blind files only
+            let is_new_or_deleted = info.all_added || info.all_deleted;
+            let low_graph = info.max_blast <= 5 && info.max_dependents <= 5;
+
             if !is_aux {
-                // For non-aux files, only apply deleted-file aggregate bonus
-                if !info.all_deleted || info.scores.len() < 3 {
+                // Non-aux: only deleted files with multiple entities qualify
+                if !info.all_deleted || info.entity_count < 3 {
                     continue;
                 }
-            } else {
-                // For aux files: must be new/deleted OR low graph
-                let is_new_or_deleted = info.all_added || info.all_deleted;
-                let low_graph = info.max_blast <= 5 && info.max_dependents <= 5;
-                if !is_new_or_deleted && !low_graph {
-                    continue;
-                }
+            } else if !is_new_or_deleted && !low_graph {
+                continue;
             }
 
-            let mut bonus = 0.0_f64;
+            // Intrinsic bonus: fraction of the file's top entity score
+            let mut bonus = 0.15 * info.max_score;
 
-            // Aggregate bonus: log-scaled sum of top-4 entity scores
-            let mut sorted_scores = info.scores.clone();
-            sorted_scores.sort_by(|a, b| b.partial_cmp(a).unwrap());
-            let top_k: f64 = sorted_scores.iter().take(4).sum();
-            if sorted_scores.len() >= 2 {
-                let agg_bonus = 0.12 * (1.0 + top_k).ln();
-                bonus += agg_bonus.min(0.18);
-            }
-
-            // Paired source transfer for aux (spec/test/story) files
+            // Paired source transfer for aux files
             if is_aux {
                 if let Some(source_base) = derive_source_basename(file_path) {
                     let mut best_source_score = 0.0_f64;
@@ -466,24 +375,18 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
                             continue;
                         }
                         if file_basename_without_ext(other_file) == source_base {
-                            let max_score = other_info
-                                .scores
-                                .iter()
-                                .cloned()
-                                .fold(0.0_f64, f64::max);
-                            if max_score > best_source_score {
-                                best_source_score = max_score;
+                            if other_info.max_score > best_source_score {
+                                best_source_score = other_info.max_score;
                             }
                         }
                     }
                     if best_source_score > 0.0 {
-                        let pair_bonus = 0.25 * best_source_score;
-                        bonus += pair_bonus.min(0.20);
+                        bonus += 0.25 * best_source_score;
                     }
                 }
             }
 
-            bonus = bonus.min(0.35);
+            bonus = bonus.min(0.30);
             if bonus > 0.01 {
                 file_bonus.insert(file_path.clone(), bonus);
             }
@@ -505,7 +408,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         }
     }
 
-    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+    sort_reviews_deterministic(&mut reviews);
 
     let total_ms = total_start.elapsed().as_millis() as u64;
 
@@ -610,7 +513,7 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
         reviews.push(review);
     }
 
-    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+    sort_reviews_deterministic(&mut reviews);
 
     let groups = untangle(&reviews, &[]);
 
@@ -651,7 +554,7 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
                 review.risk_level = score_to_level(review.risk_score);
             }
         }
-        reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+        sort_reviews_deterministic(&mut reviews);
     }
 
     let total_ms = total_start.elapsed().as_millis() as u64;
@@ -835,7 +738,7 @@ fn list_source_files_fallback(repo_path: &Path) -> Result<Vec<String>, AnalyzeEr
     Ok(files)
 }
 
-fn is_test_like_path(file_path: &str) -> bool {
+pub(crate) fn is_test_like_path(file_path: &str) -> bool {
     file_path.contains("/test/")
         || file_path.contains("/tests/")
         || file_path.contains("/spec/")
@@ -925,6 +828,19 @@ fn empty_result() -> ReviewResult {
         findings: vec![],
         changes: vec![],
     }
+}
+
+/// Deterministic sort for entity reviews: score descending, then file path
+/// ascending, then entity id ascending. Eliminates arbitrary ordering for
+/// tied scores (e.g., 93 CSS chunks all at 0.15).
+fn sort_reviews_deterministic(reviews: &mut [EntityReview]) {
+    reviews.sort_by(|a, b| {
+        b.risk_score
+            .partial_cmp(&a.risk_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.file_path.cmp(&b.file_path))
+            .then_with(|| a.entity_id.cmp(&b.entity_id))
+    });
 }
 
 #[derive(Debug, thiserror::Error)]
