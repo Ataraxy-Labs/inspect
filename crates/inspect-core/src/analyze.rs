@@ -3,7 +3,7 @@ use std::path::Path;
 
 use sem_core::git::bridge::GitBridge;
 use sem_core::git::types::{DiffScope, FileChange, FileStatus};
-use sem_core::model::change::ChangeType;
+use sem_core::model::change::{ChangeType, SemanticChange};
 use sem_core::parser::differ::compute_semantic_diff;
 use sem_core::parser::graph::EntityGraph;
 use sem_core::parser::plugins::create_default_registry;
@@ -41,13 +41,61 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         return Ok(empty_result());
     }
 
+    // Phase 1b: Create synthetic file-level entities for changed files that
+    // produced zero entities from tree-sitter parsing. This ensures files
+    // written in DSL styles (e.g., RSpec specs, Storybook stories) or
+    // languages where the parser extracts no named entities still appear
+    // in the review results rather than being silently dropped.
+    let mut diff_changes = diff.changes;
+    {
+        let files_with_entities: HashSet<&str> = diff_changes.iter().map(|c| c.file_path.as_str()).collect();
+        let mut synthetic: Vec<SemanticChange> = Vec::new();
+        for fc in &file_changes {
+            if files_with_entities.contains(fc.file_path.as_str()) {
+                continue;
+            }
+            // Only create synthetic entities for source files that actually changed
+            let ext = fc.file_path.rsplit('.').next().unwrap_or("");
+            if !SOURCE_EXTENSIONS.contains(&ext) {
+                continue;
+            }
+            // Determine change type from file status
+            let change_type = match fc.status {
+                FileStatus::Added => ChangeType::Added,
+                FileStatus::Deleted => ChangeType::Deleted,
+                FileStatus::Modified => ChangeType::Modified,
+                _ => ChangeType::Modified,
+            };
+            // Use the file's basename (without extension) as the entity name
+            let basename = fc.file_path.rsplit('/').next().unwrap_or(&fc.file_path);
+            let name = basename.rsplit('.').last().unwrap_or(basename).to_string();
+            let entity_id = format!("{}::file::{}", fc.file_path, name);
+            synthetic.push(SemanticChange {
+                id: entity_id.clone(),
+                entity_id,
+                change_type,
+                entity_type: "file".to_string(),
+                entity_name: name,
+                file_path: fc.file_path.clone(),
+                old_file_path: fc.old_file_path.clone(),
+                before_content: fc.before_content.clone(),
+                after_content: fc.after_content.clone(),
+                commit_sha: None,
+                author: None,
+                timestamp: None,
+                structural_change: Some(true),
+            });
+        }
+        diff_changes.extend(synthetic);
+    }
+
     // Phase 2: List all source files in the repo
     let list_start = Instant::now();
     let all_files = list_source_files(repo_path)?;
     let file_count = all_files.len();
     let list_files_ms = list_start.elapsed().as_millis() as u64;
 
-    let changed_entity_ids: HashSet<&str> = diff.changes.iter().map(|c| c.entity_id.as_str()).collect();
+    let changed_entity_ids: HashSet<&str> = diff_changes.iter().map(|c| c.entity_id.as_str()).collect();
 
     // Phase 3: Build entity graph (with disk cache for stable worktrees)
     let graph_start = Instant::now();
@@ -62,11 +110,12 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     let mut dependency_edges: Vec<(String, String)> = Vec::new();
 
     // Skip expensive BFS impact_count when there are many changed entities
-    let skip_bfs = diff.changes.len() > 500;
+    let skip_bfs = diff_changes.len() > 500;
 
-    for change in &diff.changes {
+    for change in &diff_changes {
         let dependents = graph.get_dependents(&change.entity_id);
         let dependencies = graph.get_dependencies(&change.entity_id);
+
         let blast_radius = if skip_bfs {
             dependents.len()
         } else {
@@ -202,7 +251,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
     let scoring_ms = scoring_start.elapsed().as_millis() as u64;
 
     // Phase 5: Run deterministic detectors
-    let findings = run_all_detectors(&reviews, &diff.changes, Some(&graph));
+    let findings = run_all_detectors(&reviews, &diff_changes, Some(&graph));
 
     // Phase 6: Boost entity scores based on detector findings
     // Entities with concrete suspicious patterns (negation flips, removed guards,
@@ -304,17 +353,155 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
         let max_per_file = 1;
         let mut file_counts: HashMap<&str, usize> = HashMap::new();
-        let mut to_discount: Vec<usize> = Vec::new();
+        let mut to_discount: Vec<(usize, f64)> = Vec::new();
         for (i, r) in reviews.iter().enumerate() {
             let count = file_counts.entry(&r.file_path).or_insert(0);
             *count += 1;
             if *count > max_per_file {
-                to_discount.push(i);
+                let discount = if is_test_like_path(&r.file_path)
+                    && r.structural_change != Some(false)
+                {
+                    0.25
+                } else {
+                    0.15
+                };
+                to_discount.push((i, discount));
             }
         }
-        for idx in to_discount {
-            reviews[idx].risk_score *= 0.15;
+        for (idx, discount) in to_discount {
+            reviews[idx].risk_score *= discount;
             reviews[idx].risk_level = score_to_level(reviews[idx].risk_score);
+        }
+    }
+
+    reviews.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap());
+
+    // Phase 9: Cold-start file bonus.
+    // New (added) or fully deleted files with low graph connectivity are
+    // "graph-blind" — their entities lack blast_radius/dependent signals.
+    // Compensate with aggregate evidence from the file's entity scores.
+    // For spec/test/story files, also transfer a bonus from the paired
+    // source file if it's changed in the same PR.
+    {
+        use std::collections::HashMap;
+
+        struct FileInfo {
+            scores: Vec<f64>,
+            max_blast: usize,
+            max_dependents: usize,
+            all_added: bool,
+            all_deleted: bool,
+        }
+        let mut file_info: HashMap<String, FileInfo> = HashMap::new();
+        for r in reviews.iter() {
+            let entry = file_info
+                .entry(r.file_path.clone())
+                .or_insert(FileInfo {
+                    scores: Vec::new(),
+                    max_blast: 0,
+                    max_dependents: 0,
+                    all_added: true,
+                    all_deleted: true,
+                });
+            entry.scores.push(r.risk_score);
+            if r.blast_radius > entry.max_blast {
+                entry.max_blast = r.blast_radius;
+            }
+            if r.dependent_count > entry.max_dependents {
+                entry.max_dependents = r.dependent_count;
+            }
+            if r.change_type != ChangeType::Added {
+                entry.all_added = false;
+            }
+            if r.change_type != ChangeType::Deleted {
+                entry.all_deleted = false;
+            }
+        }
+
+        let mut file_bonus: HashMap<String, f64> = HashMap::new();
+        for (file_path, info) in &file_info {
+            // Only apply cold-start bonus to aux files (spec/test/story)
+            // that are newly added or fully deleted with low graph signal.
+            // Non-aux source files already get reasonable scoring from the graph.
+            let is_aux = file_path.contains(".spec.")
+                || file_path.contains(".stories.")
+                || file_path.contains(".test.");
+            if !is_aux {
+                // For non-aux files, only apply deleted-file aggregate bonus
+                if !info.all_deleted || info.scores.len() < 3 {
+                    continue;
+                }
+            } else {
+                // For aux files: must be new/deleted OR low graph
+                let is_new_or_deleted = info.all_added || info.all_deleted;
+                let low_graph = info.max_blast <= 5 && info.max_dependents <= 5;
+                if !is_new_or_deleted && !low_graph {
+                    continue;
+                }
+            }
+
+            let mut bonus = 0.0_f64;
+
+            // Aggregate bonus: log-scaled sum of top-4 entity scores
+            let mut sorted_scores = info.scores.clone();
+            sorted_scores.sort_by(|a, b| b.partial_cmp(a).unwrap());
+            let top_k: f64 = sorted_scores.iter().take(4).sum();
+            if sorted_scores.len() >= 2 {
+                let agg_bonus = 0.12 * (1.0 + top_k).ln();
+                bonus += agg_bonus.min(0.18);
+            }
+
+            // Paired source transfer for aux (spec/test/story) files
+            if is_aux {
+                if let Some(source_base) = derive_source_basename(file_path) {
+                    let mut best_source_score = 0.0_f64;
+                    for (other_file, other_info) in &file_info {
+                        if other_file == file_path {
+                            continue;
+                        }
+                        if other_file.contains(".spec.")
+                            || other_file.contains(".stories.")
+                            || is_test_like_path(other_file)
+                        {
+                            continue;
+                        }
+                        if file_basename_without_ext(other_file) == source_base {
+                            let max_score = other_info
+                                .scores
+                                .iter()
+                                .cloned()
+                                .fold(0.0_f64, f64::max);
+                            if max_score > best_source_score {
+                                best_source_score = max_score;
+                            }
+                        }
+                    }
+                    if best_source_score > 0.0 {
+                        let pair_bonus = 0.25 * best_source_score;
+                        bonus += pair_bonus.min(0.20);
+                    }
+                }
+            }
+
+            bonus = bonus.min(0.35);
+            if bonus > 0.01 {
+                file_bonus.insert(file_path.clone(), bonus);
+            }
+        }
+
+        // Apply bonus to the top entity per eligible file
+        if !file_bonus.is_empty() {
+            let mut applied: HashSet<String> = HashSet::new();
+            for r in reviews.iter_mut() {
+                if applied.contains(&r.file_path) {
+                    continue;
+                }
+                if let Some(&bonus) = file_bonus.get(&r.file_path) {
+                    r.risk_score = (r.risk_score + bonus).min(1.0);
+                    r.risk_level = score_to_level(r.risk_score);
+                    applied.insert(r.file_path.clone());
+                }
+            }
         }
     }
 
@@ -340,7 +527,7 @@ pub fn analyze(repo_path: &Path, scope: DiffScope) -> Result<ReviewResult, Analy
         stats,
         timing,
         findings,
-        changes: diff.changes,
+        changes: diff_changes,
     })
 }
 
@@ -646,6 +833,66 @@ fn list_source_files_fallback(repo_path: &Path) -> Result<Vec<String>, AnalyzeEr
         .collect();
 
     Ok(files)
+}
+
+fn is_test_like_path(file_path: &str) -> bool {
+    file_path.contains("/test/")
+        || file_path.contains("/tests/")
+        || file_path.contains("/spec/")
+        || file_path.contains("/specs/")
+        || file_path.contains("/__tests__/")
+        || file_path.contains(".test.")
+        || file_path.contains(".spec.")
+        || file_path.contains("_test.")
+        || file_path.contains("Test.java")
+        || file_path.contains("Spec.java")
+}
+
+/// Extract the base filename without extension from a path.
+/// e.g., "src/foo/bar.tsx" → "bar"
+fn file_basename_without_ext(path: &str) -> String {
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    // Remove all extensions (handles .stories.tsx, .spec.tsx, .test.ts, etc.)
+    basename.split('.').next().unwrap_or(basename).to_string()
+}
+
+/// Derive the source file basename from a test/spec/story file path.
+/// e.g., "foo.stories.tsx" → "foo", "foo.spec.tsx" → "foo",
+///       "foo.test.ts" → "foo", "foo_test.go" → "foo",
+///       "test_foo.py" → "foo", "FooTest.java" → "Foo"
+fn derive_source_basename(test_path: &str) -> Option<String> {
+    let basename = test_path.rsplit('/').next().unwrap_or(test_path);
+    let name_no_ext = basename.split('.').next().unwrap_or(basename);
+
+    // Handle patterns: foo.stories.tsx, foo.spec.tsx, foo.test.ts
+    if basename.contains(".stories.")
+        || basename.contains(".spec.")
+        || basename.contains(".test.")
+    {
+        return Some(name_no_ext.to_string());
+    }
+    // Handle: foo_test.go, foo_test.rs, foo_spec.rb
+    if let Some(stripped) = name_no_ext.strip_suffix("_test") {
+        return Some(stripped.to_string());
+    }
+    if let Some(stripped) = name_no_ext.strip_suffix("_spec") {
+        return Some(stripped.to_string());
+    }
+    // Handle: test_foo.py
+    if let Some(stripped) = name_no_ext.strip_prefix("test_") {
+        return Some(stripped.to_string());
+    }
+    // Handle: FooTest.java, FooTests.java, FooSpec.java
+    if let Some(stripped) = name_no_ext.strip_suffix("Test") {
+        return Some(stripped.to_string());
+    }
+    if let Some(stripped) = name_no_ext.strip_suffix("Tests") {
+        return Some(stripped.to_string());
+    }
+    if let Some(stripped) = name_no_ext.strip_suffix("Spec") {
+        return Some(stripped.to_string());
+    }
+    None
 }
 
 fn empty_result() -> ReviewResult {

@@ -80,31 +80,31 @@ Outputs `METRIC neg_recall=<value>` plus secondary metrics. Takes ~60s.
 - Test penalty tuning irrelevant: test entities have 0 blast/deps, the multiplicative penalty doesn't help
 - Structural change bonus: adding +0.05-0.06 for structural_change==true caused regressions
 
-## Current: -0.9522 (95.22% mean recall, 122/128 bugs hit)
-- Per-fold: cal.com 100%, discourse 96.4%, grafana 100%, keycloak 91.7%, sentry 88.0%
-- **+11 bugs from baseline** (111→122)
+## Current: -0.9837 (98.37% mean recall, 126/128 bugs hit)
+- Per-fold: cal.com 100%, discourse 100%, grafana 100%, keycloak 95.8%, sentry 96.0%
+- **+15 bugs from baseline** (111→126)
 
-## Remaining 6 Misses (irreducible at TOP_N=20)
+## Remaining 2 Misses (at TOP_N=20)
 
-### Why they're irreducible:
-1. **discourse 5f8a spec.rb** — NOT_FOUND in entities; Ruby spec files not parsed by inspector
-2. **keycloak 36880 getId** — Deleted method, generic name, zero blast radius, zero deps, score 0.054 vs cutoff 0.537. Would need +0.48 boost = impossible
-3. **keycloak 40940 createMultiDeleteMultiReadMulti** — Test entity in 622-entity PR, rank 43, score 0.483 vs cutoff 0.814. Would need +0.33 boost
-4. **sentry PR#5 stories.tsx ×2** — Variable entity at rank 60/420, score 0.627 vs cutoff 0.801. PR has 20 unique files in top-20 already
-5. **sentry PR#5 spec.tsx** — Variable at rank 94/420, score 0.389 vs cutoff 0.801. Delta = -0.41
+### Analysis:
+1. **keycloak 36880 getId** — Deleted test-framework file. Class entity at rank 30/324, score ~0.54, cutoff 0.837. Zero graph features (deleted from HEAD). Gap of 0.30.
+2. **sentry PR#5 spec.tsx** — File-only anchor, best entity `createWrapper` at rank 61/427, score ~0.66, cutoff 0.904. Massive gap in a 427-entity mega-PR.
 
-### Fragile survivors:
-- discourse d38c: 93 CSS chunk entities ALL at tied score 0.15 — top-20 ordering is arbitrary
-- discourse 4f8aed Gemfile_rails4.lock: chunk at rank 19, margin +0.02 above cutoff
-- Any scoring change that shifts non-chunk entities up by >0.02 kills a discourse bug
+### What just worked (Exp #51):
+- **Cold-start file bonus (Phase 9)**: For newly added/deleted files with low graph connectivity, compute an aggregate bonus from multiple entity scores in the file. For spec/test/story files, also transfer a bonus from the paired source file if it's changed in the same PR. Carefully gated: only aux files (spec/test/story) get the full treatment; non-aux files only get the bonus if entirely deleted with 3+ entities.
+- **Key insight**: The per-file diversity cap means only 1 entity per file enters the top-20. For files with many moderate-scoring entities, this underestimates the file's importance. The aggregate bonus compensates.
+- **Result**: +2 bugs (sentry stories.tsx ×2), 124→126 without any regressions.
 
 ## Key Wins (what worked)
 1. **Per-file diversity** (max 1 per file, 0.15x for excess) — biggest single win, +5 bugs
 2. **Low-bug-density entity type discount** (0.6x for export/type/interface/property/field) — +2 sentry bugs
 3. **Blast radius cap** (0.20 max contribution) — prevented blast from drowning other signals
 4. **Finding boost increase** (cap 0.35, severity +50%) — +1 discourse bug
-5. **New detectors** (null-return-introduced, logic-gate-swap, variable-near-miss, boolean-polarity-flip, argument-order-swap, boolean-literal-flip) — quality improvements
-6. **Chunk/dedup penalties** — quality improvements
+5. **Soft per-file rescue** (2.0x multiplier for strong High/Critical findings) — +1 bug breakthrough
+6. **Synthetic file-level entities** (file-type entities for changed files with zero tree-sitter entities, 0.5x discount) — +1 discourse spec.rb bug
+7. **Cold-start file bonus** (aggregate score + paired source transfer for new/deleted aux files) — +2 sentry stories.tsx bugs
+8. **New detectors** (null-return-introduced, logic-gate-swap, variable-near-miss, boolean-polarity-flip, argument-order-swap, boolean-literal-flip) — quality improvements
+9. **Chunk/dedup penalties** — quality improvements
 
 ## What Didn't Work (56+ experiments tried)
 - Weight tuning: all entities in same file lift equally
