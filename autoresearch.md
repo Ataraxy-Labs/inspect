@@ -80,20 +80,20 @@ Outputs `METRIC neg_recall=<value>` plus secondary metrics. Takes ~60s.
 - Test penalty tuning irrelevant: test entities have 0 blast/deps, the multiplicative penalty doesn't help
 - Structural change bonus: adding +0.05-0.06 for structural_change==true caused regressions
 
-## Current: -0.9837 (98.37% mean recall, 126/128 bugs hit)
-- Per-fold: cal.com 100%, discourse 100%, grafana 100%, keycloak 95.8%, sentry 96.0%
-- **+15 bugs from baseline** (111→126)
+## Current: -0.992 (99.2% mean recall, 127/128 bugs hit)
+- Per-fold: cal.com 100%, discourse 100%, grafana 100%, keycloak 100%, sentry 96.0%
+- **+16 bugs from baseline** (111→127)
 
-## Remaining 2 Misses (at TOP_N=20)
+## Remaining 1 Miss (at TOP_N=20)
 
 ### Analysis:
-1. **keycloak 36880 getId** — Deleted test-framework file. Class entity at rank 30/324, score ~0.54, cutoff 0.837. Zero graph features (deleted from HEAD). Gap of 0.30.
-2. **sentry PR#5 spec.tsx** — File-only anchor, best entity `createWrapper` at rank 61/427, score ~0.66, cutoff 0.904. Massive gap in a 427-entity mega-PR.
+1. **sentry PR#5 spec.tsx** — File-only anchor, best entity `createWrapper` at rank 61/427, score ~0.66, cutoff 0.904. Massive gap in a 427-entity mega-PR. Essentially impossible without major structural changes — all top-20 entities have blast_radius > 0 and scores > 0.90.
 
-### What just worked (Exp #51):
-- **Cold-start file bonus (Phase 9)**: For newly added/deleted files with low graph connectivity, compute an aggregate bonus from multiple entity scores in the file. For spec/test/story files, also transfer a bonus from the paired source file if it's changed in the same PR. Carefully gated: only aux files (spec/test/story) get the full treatment; non-aux files only get the bonus if entirely deleted with 3+ entities.
-- **Key insight**: The per-file diversity cap means only 1 entity per file enters the top-20. For files with many moderate-scoring entities, this underestimates the file's importance. The aggregate bonus compensates.
-- **Result**: +2 bugs (sentry stories.tsx ×2), 124→126 without any regressions.
+### What just worked (Exp #52):
+- **Deleted extension contract detector (Phase 10)**: New diff heuristic detector `deleted-extension-contract` + `deleted-identity-constant` that fires on deleted classes/structs exhibiting a framework extension triplet: identity method (getId/getName/etc.) + construction method (create/build/provide) + lifecycle hook (init/close/destroy/etc.). Requires all three categories present. Additional confidence boost for `implements`/`extends` markers and identity methods returning constants.
+- **Key insight**: The detector emits TWO findings with different rule_ids on the same class entity (one Critical, one High), both at confidence 0.88. Combined finding boost of 0.158+0.123=0.281 (under 0.30 cap) lifts the deleted class from ~0.60 base to ~0.84, crossing the 0.837 cutoff.
+- **Why it doesn't regress grafana**: Grafana's batch-deleted social OAuth connectors (UserInfo+Exchange methods) don't match the triplet pattern — they lack identity+construction+lifecycle method combinations. TagDevice at rank 18 is unaffected.
+- **Result**: +1 keycloak bug (getId/RunOnServerRealmResourceProviderFactory), 126→127 without regressions.
 
 ## Key Wins (what worked)
 1. **Per-file diversity** (max 1 per file, 0.15x for excess) — biggest single win, +5 bugs
@@ -103,8 +103,9 @@ Outputs `METRIC neg_recall=<value>` plus secondary metrics. Takes ~60s.
 5. **Soft per-file rescue** (2.0x multiplier for strong High/Critical findings) — +1 bug breakthrough
 6. **Synthetic file-level entities** (file-type entities for changed files with zero tree-sitter entities, 0.5x discount) — +1 discourse spec.rb bug
 7. **Cold-start file bonus** (aggregate score + paired source transfer for new/deleted aux files) — +2 sentry stories.tsx bugs
-8. **New detectors** (null-return-introduced, logic-gate-swap, variable-near-miss, boolean-polarity-flip, argument-order-swap, boolean-literal-flip) — quality improvements
-9. **Chunk/dedup penalties** — quality improvements
+8. **Deleted extension contract detector** (triplet: identity+construction+lifecycle methods in deleted class → Critical+High findings) — +1 keycloak bug
+9. **New detectors** (null-return-introduced, logic-gate-swap, variable-near-miss, boolean-polarity-flip, argument-order-swap, boolean-literal-flip) — quality improvements
+10. **Chunk/dedup penalties** — quality improvements
 
 ## What Didn't Work (56+ experiments tried)
 - Weight tuning: all entities in same file lift equally

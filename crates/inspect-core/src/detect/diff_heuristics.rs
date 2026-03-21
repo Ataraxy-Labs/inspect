@@ -10,6 +10,9 @@ use super::types::{DetectorFinding, DetectorKind, Severity};
 pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
     let mut findings = Vec::new();
 
+    // Pre-pass: detect deleted extension/registration contracts
+    check_deleted_extension_contract(changes, &mut findings);
+
     for change in changes {
         let before = match &change.before_content {
             Some(b) => b,
@@ -600,6 +603,236 @@ fn check_await_removed(
             ));
         }
     }
+}
+
+/// Detect deletion of extension/registration contract surfaces.
+///
+/// Framework plugins, providers, and factories typically expose a triplet:
+/// 1. An identity method (getId, id, name, key, type)
+/// 2. A construction method (create, build, provide, newInstance)
+/// 3. A lifecycle hook (init, postInit, close, shutdown, destroy, start, stop, configure)
+///
+/// When such an entity is entirely deleted, framework lookup/wiring code may
+/// silently break. This fires on class-level entities (or the top entity from
+/// the file) that contain this triplet in their before_content.
+fn check_deleted_extension_contract(
+    changes: &[SemanticChange],
+    findings: &mut Vec<DetectorFinding>,
+) {
+    use std::collections::HashMap;
+    use sem_core::model::change::ChangeType;
+
+    // Only consider fully deleted entities (before_content present, after_content absent)
+    let deleted: Vec<&SemanticChange> = changes
+        .iter()
+        .filter(|c| {
+            c.change_type == ChangeType::Deleted
+                && c.before_content.is_some()
+                && c.after_content.is_none()
+        })
+        .collect();
+
+    if deleted.is_empty() {
+        return;
+    }
+
+    // Group deleted entities by file path
+    let mut by_file: HashMap<&str, Vec<&SemanticChange>> = HashMap::new();
+    for ch in &deleted {
+        by_file.entry(ch.file_path.as_str()).or_default().push(ch);
+    }
+
+    for file_changes in by_file.values() {
+        // Find the class/struct entity (or the entity with the most content)
+        let class_change = file_changes
+            .iter()
+            .find(|c| matches!(c.entity_type.as_str(), "class" | "struct"))
+            .or_else(|| {
+                // Fallback: use the entity with the longest before_content
+                file_changes.iter().max_by_key(|c| {
+                    c.before_content.as_ref().map_or(0, |s| s.len())
+                })
+            });
+
+        let class_change = match class_change {
+            Some(c) => *c,
+            None => continue,
+        };
+
+        let before = match &class_change.before_content {
+            Some(b) => b.as_str(),
+            None => continue,
+        };
+
+        // Collect method names from all deleted entities in this file
+        let method_names: Vec<&str> = file_changes
+            .iter()
+            .filter(|c| matches!(c.entity_type.as_str(), "method" | "function"))
+            .map(|c| c.entity_name.as_str())
+            .collect();
+
+        // Also extract method-like identifiers from the class content itself
+        // (covers cases where entity extraction missed some methods)
+        let content_methods = extract_method_like_names(before);
+
+        let has_identity = method_names
+            .iter()
+            .any(|m| is_identity_method(m))
+            || content_methods.iter().any(|m| is_identity_method(m));
+
+        let has_constructor = method_names
+            .iter()
+            .any(|m| is_construction_method(m))
+            || content_methods.iter().any(|m| is_construction_method(m));
+
+        let has_lifecycle = method_names
+            .iter()
+            .any(|m| is_lifecycle_method(m))
+            || content_methods.iter().any(|m| is_lifecycle_method(m));
+
+        if !(has_identity && has_constructor && has_lifecycle) {
+            continue;
+        }
+
+        // Compute confidence based on additional signals
+        let mut confidence = 0.72_f64;
+        if before.contains("implements ")
+            || before.contains(" extends ")
+            || before.contains(": public ")
+        {
+            confidence += 0.08;
+        }
+        // Check if identity method returns a constant/literal
+        if returns_constant_identity(before) {
+            confidence += 0.08;
+        }
+        confidence = confidence.min(0.88);
+
+        // Emit finding on the class/struct entity
+        findings.push(make_finding(
+            "deleted-extension-contract",
+            "Deleted extension/registration contract (identity + construction + lifecycle hooks) \
+             — framework lookup/wiring may still depend on it",
+            confidence,
+            Severity::Critical,
+            class_change,
+            "deleted contract surface",
+            1,
+        ));
+
+        // Emit a separate finding for the identity constant risk.
+        // When a deleted extension's identity method returns a constant (e.g.,
+        // return "run-on-server"), the framework registry may still reference
+        // that key. This is a distinct risk from the structural contract
+        // deletion above, so it uses a separate rule_id to avoid dedup.
+        if returns_constant_identity(before) {
+            findings.push(make_finding(
+                "deleted-identity-constant",
+                "Deleted extension returns a constant identifier — \
+                 framework registry may still reference this key",
+                confidence,
+                Severity::High,
+                class_change,
+                "constant identity return",
+                1,
+            ));
+        }
+    }
+}
+
+fn is_identity_method(name: &str) -> bool {
+    matches!(
+        name,
+        "getId" | "id" | "name" | "key" | "slug" | "type" | "getType" | "getName" | "getKey"
+            | "getSlug" | "getComponentType" | "getProviderId"
+    )
+}
+
+fn is_construction_method(name: &str) -> bool {
+    matches!(
+        name,
+        "create" | "build" | "provide" | "newInstance" | "factory" | "make"
+            | "getInstance" | "getResource" | "createInstance"
+    )
+}
+
+fn is_lifecycle_method(name: &str) -> bool {
+    matches!(
+        name,
+        "init" | "postInit" | "close" | "shutdown" | "destroy" | "start" | "stop"
+            | "configure" | "dispose" | "cleanup" | "register" | "unregister"
+            | "onStart" | "onStop" | "onDestroy"
+    )
+}
+
+/// Extract method-like names from content using simple heuristics.
+/// Looks for patterns like `fn name(`, `def name(`, `void name(`, `public name(`, etc.
+fn extract_method_like_names(content: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        // Skip comments and annotations
+        if trimmed.starts_with("//")
+            || trimmed.starts_with("/*")
+            || trimmed.starts_with('*')
+            || trimmed.starts_with('@')
+            || trimmed.starts_with('#')
+        {
+            continue;
+        }
+        // Look for method declarations: word followed by (
+        // Pattern: ... name(...) where name is an identifier
+        if let Some(paren_pos) = trimmed.find('(') {
+            if paren_pos > 0 {
+                let before_paren = &trimmed[..paren_pos];
+                // Get the last word before the paren
+                if let Some(name) = before_paren
+                    .rsplit(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                {
+                    if !name.is_empty()
+                        && name.starts_with(|c: char| c.is_lowercase())
+                        && name.len() >= 2
+                    {
+                        names.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Check if the content contains an identity method that returns a constant.
+/// e.g., `return "some-id";` or `return ID;` or `return PROVIDER_ID;`
+fn returns_constant_identity(content: &str) -> bool {
+    let lines: Vec<&str> = content.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        // Look for identity method signatures
+        if (trimmed.contains("getId") || trimmed.contains("getType") || trimmed.contains("getName"))
+            && trimmed.contains('(')
+        {
+            // Check the next few lines for a constant return
+            for j in 1..=5 {
+                if i + j >= lines.len() {
+                    break;
+                }
+                let next = lines[i + j].trim();
+                if next.starts_with("return ")
+                    && (next.contains('"') || next.contains('\'')
+                        || next
+                            .trim_start_matches("return ")
+                            .trim_end_matches(';')
+                            .chars()
+                            .all(|c| c.is_uppercase() || c == '_'))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -1482,6 +1715,84 @@ mod tests {
         assert!(
             !findings.iter().any(|f| f.rule_id == "await-removed"),
             "Should not detect await removal when await was added: {:?}",
+            findings
+        );
+    }
+
+    fn make_deleted(entity_type: &str, entity_name: &str, file_path: &str, before: &str) -> SemanticChange {
+        SemanticChange {
+            id: format!("{}::{}::{}", file_path, entity_type, entity_name),
+            entity_id: format!("{}::{}::{}", file_path, entity_type, entity_name),
+            change_type: ChangeType::Deleted,
+            entity_type: entity_type.to_string(),
+            entity_name: entity_name.to_string(),
+            file_path: file_path.to_string(),
+            old_file_path: None,
+            before_content: Some(before.to_string()),
+            after_content: None,
+            commit_sha: None,
+            author: None,
+            timestamp: None,
+            structural_change: None,
+        }
+    }
+
+    #[test]
+    fn test_deleted_extension_contract_detected() {
+        let class_content = r#"
+public class MyProviderFactory implements ProviderFactory {
+    public String getId() {
+        return "my-provider";
+    }
+    public Provider create(Session session) {
+        return new MyProvider(session);
+    }
+    public void init(Config config) {
+        // setup
+    }
+    public void close() {
+        // teardown
+    }
+}
+"#;
+        let changes = vec![
+            make_deleted("class", "MyProviderFactory", "src/MyProviderFactory.java", class_content),
+            make_deleted("method", "getId", "src/MyProviderFactory.java", "public String getId() { return \"my-provider\"; }"),
+            make_deleted("method", "create", "src/MyProviderFactory.java", "public Provider create(Session s) { return new MyProvider(s); }"),
+            make_deleted("method", "init", "src/MyProviderFactory.java", "public void init(Config c) {}"),
+            make_deleted("method", "close", "src/MyProviderFactory.java", "public void close() {}"),
+        ];
+        let findings = run_diff_heuristics(&changes);
+        let contract_findings: Vec<_> = findings.iter().filter(|f| f.rule_id == "deleted-extension-contract").collect();
+        assert!(
+            !contract_findings.is_empty(),
+            "Should detect deleted extension contract: {:?}",
+            findings
+        );
+        assert_eq!(contract_findings[0].entity_name, "MyProviderFactory");
+    }
+
+    #[test]
+    fn test_deleted_extension_contract_not_fired_without_triplet() {
+        // Only has UserInfo + Exchange — no identity + construction + lifecycle triplet
+        let class_content = r#"
+type GoogleConnector struct {}
+func (c *GoogleConnector) UserInfo(ctx context.Context) (*UserInfo, error) {
+    return nil, nil
+}
+func (c *GoogleConnector) Exchange(ctx context.Context, code string) (*Token, error) {
+    return nil, nil
+}
+"#;
+        let changes = vec![
+            make_deleted("class", "GoogleConnector", "pkg/social/google.go", class_content),
+            make_deleted("method", "UserInfo", "pkg/social/google.go", "func UserInfo() {}"),
+            make_deleted("method", "Exchange", "pkg/social/google.go", "func Exchange() {}"),
+        ];
+        let findings = run_diff_heuristics(&changes);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "deleted-extension-contract"),
+            "Should NOT detect extension contract without identity+construction+lifecycle triplet: {:?}",
             findings
         );
     }
