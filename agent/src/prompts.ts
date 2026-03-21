@@ -40,6 +40,23 @@ export function buildUserPrompt(
 ): string {
   const TOP_N = 30;
   const topEntities = entityReviews.slice(0, TOP_N);
+  const topEntityIds = new Set(topEntities.map((e) => e.entity_id));
+
+  // Promote entities with detector findings that aren't already in top-N
+  // Skip test files to avoid noise
+  const findingEntityIds = new Set(findings.map((f) => f.entity_id));
+  for (const e of entityReviews) {
+    if (
+      findingEntityIds.has(e.entity_id) &&
+      !topEntityIds.has(e.entity_id) &&
+      !e.file_path.includes("test") &&
+      !e.file_path.includes("spec") &&
+      !e.file_path.includes("_test.")
+    ) {
+      topEntities.push(e);
+      topEntityIds.add(e.entity_id);
+    }
+  }
 
   // Build a lookup of ALL entities by name for contract co-location
   const entitiesByName = new Map<string, EntityReview[]>();
@@ -48,9 +65,6 @@ export function buildUserPrompt(
     arr.push(e);
     entitiesByName.set(e.entity_name, arr);
   }
-
-  // Detect which entities are interface/abstract declarations (contracts)
-  const topEntityIds = new Set(topEntities.map((e) => e.entity_id));
 
   // Group top entities by file for display
   const byFile = new Map<string, EntityReview[]>();
@@ -73,6 +87,8 @@ export function buildUserPrompt(
   // Findings — strongest signals first
   if (findings.length > 0) {
     lines.push(`## Detector Findings (${findings.length})`);
+    lines.push(`These are automatically detected issues. Investigate each one — read the code and callers to confirm or refute.`);
+    lines.push("");
     for (const f of findings) {
       const entity = entityReviews.find((e) => e.entity_id === f.entity_id);
       const risk = entity
@@ -83,6 +99,11 @@ export function buildUserPrompt(
       );
       lines.push(`  ${f.message}`);
       lines.push(`  \`${f.evidence}\`${risk}`);
+      // Add targeted review question based on finding type
+      const question = generateFindingQuestion(f);
+      if (question) {
+        lines.push(`  → **Investigate:** ${question}`);
+      }
     }
     lines.push("");
   }
@@ -322,4 +343,26 @@ export function buildFallbackPrompt(
   triageSection: string,
 ): string {
   return buildUserPrompt(prTitle, diff, triageSection, [], []);
+}
+
+/**
+ * Generate a targeted review question for a detector finding.
+ */
+function generateFindingQuestion(f: DetectorFinding): string | null {
+  const ruleQuestions: Record<string, string> = {
+    "removed-guard": `What scenario did the removed guard \`${f.evidence}\` protect against? Is that scenario still handled?`,
+    "nil-check-missing": `What happens if this call fails? Grep for all callers of \`${f.entity_name}\` and check error handling.`,
+    "foreach-async": `Are the async operations inside forEach awaited? Check if Promise.all or for...of is needed.`,
+    "missing-await": `Is the return value of this async call used? Check if a missing await causes a race condition.`,
+    "catch-swallow": `What errors are being swallowed? Check if the catch block should re-throw or log.`,
+    "signature-change-with-callers": `This function's signature changed. Grep for all callers and verify they pass the correct arguments.`,
+    "arity-change-with-callers": `Parameter count changed. Grep for all callers — do they pass the right number of arguments?`,
+    "type-change-propagation": `A type changed but dependents may not be updated. Check all usages of this entity.`,
+    "hardcoded-secret": `Is this a hardcoded credential or token? Verify it's not a real secret.`,
+    "logic-gate-swap": `AND/OR logic changed. Verify the new logic matches the intended behavior.`,
+    "null-return-introduced": `A null/None return was added. Do all callers handle null?`,
+    "argument-order-swap": `Arguments may have been swapped. Verify the order matches the function signature.`,
+    "callee-swap": `A different function is being called. Verify the replacement has compatible behavior.`,
+  };
+  return ruleQuestions[f.rule_id] ?? null;
 }
