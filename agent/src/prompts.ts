@@ -84,6 +84,16 @@ export function buildUserPrompt(
   lines.push(`Top ${topEntities.length} entities across ${sortedFiles.length} files (from ${entityReviews.length} total)`);
   lines.push("");
 
+  // Domain-specific review hints
+  const domainHints = generateDomainHints(entityReviews);
+  if (domainHints.length > 0) {
+    lines.push("## Language-Specific Review Hints");
+    for (const hint of domainHints) {
+      lines.push(`- ${hint}`);
+    }
+    lines.push("");
+  }
+
   // Findings — strongest signals first
   if (findings.length > 0) {
     lines.push(`## Detector Findings (${findings.length})`);
@@ -157,6 +167,18 @@ export function buildUserPrompt(
       lines.push(
         `risk=${e.risk_level}(${e.risk_score.toFixed(2)}) blast=${e.blast_radius} deps=${e.dependent_count}${pub}${callerStr}`,
       );
+
+      // Caller context: for entities with dependents, show how they're called
+      // This helps the agent spot argument mismatches, null-unsafe calls, race conditions
+      if (e.dependent_count > 0 && e.dependent_names.length > 0) {
+        const callerSnippets = getCallerSnippets(e, entityReviews);
+        if (callerSnippets.length > 0) {
+          lines.push("**Called from:**");
+          for (const snippet of callerSnippets) {
+            lines.push(snippet);
+          }
+        }
+      }
 
       // Contract co-location: for @Override methods, find the interface/parent signature
       const after = e.after_content ?? "";
@@ -365,4 +387,102 @@ function generateFindingQuestion(f: DetectorFinding): string | null {
     "callee-swap": `A different function is being called. Verify the replacement has compatible behavior.`,
   };
   return ruleQuestions[f.rule_id] ?? null;
+}
+
+/**
+ * Extract calling-context snippets from dependent entities.
+ * Shows how this entity is invoked, helping the agent spot:
+ * - Argument mismatches (wrong types, wrong order)
+ * - Null-unsafe calls (passing nullable values)
+ * - Race conditions (concurrent access patterns)
+ */
+function getCallerSnippets(
+  entity: EntityReview,
+  allEntities: EntityReview[],
+): string[] {
+  const snippets: string[] = [];
+  const entityName = entity.entity_name;
+
+  // Look through dependent entities for call sites
+  for (const [depName, depFile] of entity.dependent_names.slice(0, 3)) {
+    // Find the dependent entity in our review set
+    const caller = allEntities.find(
+      (e) => e.entity_name === depName && e.file_path === depFile,
+    );
+    if (!caller) continue;
+
+    const callerBody = caller.after_content ?? caller.before_content ?? "";
+    if (!callerBody.includes(entityName)) continue;
+
+    // Extract the lines around the call site
+    const callerLines = callerBody.split("\n");
+    for (let i = 0; i < callerLines.length; i++) {
+      if (callerLines[i].includes(entityName)) {
+        const start = Math.max(0, i - 1);
+        const end = Math.min(callerLines.length, i + 3);
+        const context = callerLines
+          .slice(start, end)
+          .map((l) => l.trimStart())
+          .join("\n");
+        if (context.length < 300) {
+          snippets.push(
+            `- \`${depName}\` in ${depFile.split("/").pop()}:\n  \`\`\`\n  ${context}\n  \`\`\``,
+          );
+        }
+        break;
+      }
+    }
+  }
+  return snippets;
+}
+
+/**
+ * Generate language/framework-specific review hints based on file extensions
+ * and detected patterns in the PR.
+ */
+function generateDomainHints(entityReviews: EntityReview[]): string[] {
+  const hints: string[] = [];
+  const extensions = new Set(
+    entityReviews.map((e) => {
+      const parts = e.file_path.split(".");
+      return parts.length > 1 ? parts[parts.length - 1] : "";
+    }),
+  );
+  const allContent = entityReviews
+    .slice(0, 30)
+    .map((e) => (e.after_content ?? "") + (e.before_content ?? ""))
+    .join("\n");
+
+  if (extensions.has("go")) {
+    hints.push(
+      "**Go:** Check Exec/Query first-arg must be string (not splatted interface{}). Check concurrent map/struct access for race conditions. Check error returns are not silently ignored.",
+    );
+  }
+  if (extensions.has("java")) {
+    hints.push(
+      "**Java:** Check null safety on getUser()/getAuthenticationSession()/getContext() — these return null before auth completes. Check @Override methods satisfy interface contracts. Check synchronized access.",
+    );
+  }
+  if (extensions.has("py")) {
+    hints.push(
+      "**Python:** Check __reduce__/__init__ argument ordering for pickle safety. Check mutable default args. Check Redis key expiry/TTL logic.",
+    );
+  }
+  if (extensions.has("rb")) {
+    hints.push(
+      "**Ruby:** Ruby has no method overloading — duplicate def silently overwrites. Check method arity matches all callers. Check string interpolation in SQL.",
+    );
+  }
+  if (extensions.has("ts") || extensions.has("tsx") || extensions.has("js")) {
+    hints.push(
+      "**JS/TS:** Check forEach+async (must use for...of or Promise.all). Check await on async calls. Check error handling in try/catch with async.",
+    );
+  }
+  if (allContent.includes("transaction") || allContent.includes("concurrent") || allContent.includes("mutex") || allContent.includes("synchronized")) {
+    hints.push(
+      "**Concurrency:** Check-then-act patterns without locks are race conditions. Verify atomicity of read-modify-write sequences.",
+    );
+  }
+
+  return hints;
 }
