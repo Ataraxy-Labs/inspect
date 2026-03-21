@@ -9,6 +9,7 @@ enum Lang {
     Python,
     Go,
     Java,
+    Ruby,
     Other,
 }
 
@@ -20,6 +21,7 @@ fn detect_lang(file_path: &str) -> Lang {
             "py" | "pyi" => Lang::Python,
             "go" => Lang::Go,
             "java" => Lang::Java,
+            "rb" | "rake" => Lang::Ruby,
             _ => Lang::Other,
         }
     } else {
@@ -69,6 +71,7 @@ pub fn run_pattern_rules(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
             Lang::Python => check_python_patterns(change, after, &mut findings),
             Lang::Go => check_go_patterns(change, after, &mut findings),
             Lang::Java => check_java_patterns(change, after, &mut findings),
+            Lang::Ruby => check_ruby_patterns(change, after, &mut findings),
             Lang::Other => {}
         }
 
@@ -368,11 +371,54 @@ fn check_python_patterns(
             }
         }
     }
+
+    // reduce-init-mismatch: __reduce__ returns args that don't match __init__ parameter order
+    if after.contains("__reduce__") && after.contains("__init__") && after.contains("return") {
+        findings.push(finding(
+            "reduce-init-mismatch",
+            "__reduce__ defines pickle reconstruction args — verify argument order matches __init__ parameter order exactly",
+            0.7,
+            Severity::High,
+            change,
+            "__reduce__ return tuple",
+            1,
+        ));
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Go
+// Ruby
 // ---------------------------------------------------------------------------
+
+fn check_ruby_patterns(
+    change: &SemanticChange,
+    after: &str,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    // duplicate-method-def: Ruby has no method overloading — last def wins
+    let mut method_defs: Vec<(&str, usize)> = Vec::new();
+    for (line_num, line) in after.lines().enumerate() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("def ").or_else(|| trimmed.strip_prefix("def self.")) {
+            let name = rest.split(&['(', ' ', '\n'][..]).next().unwrap_or("");
+            if !name.is_empty() {
+                // Check if this method name was already defined
+                if let Some((_, prev_line)) = method_defs.iter().find(|(n, _)| *n == name) {
+                    findings.push(finding(
+                        "duplicate-method-def",
+                        &format!("Method `{}` defined twice (first at line {}) — Ruby has no overloading, second definition silently replaces the first", name, prev_line + 1),
+                        0.95,
+                        Severity::Critical,
+                        change,
+                        trimmed,
+                        line_num + 1,
+                    ));
+                }
+                method_defs.push((name, line_num));
+            }
+        }
+    }
+}
 
 fn check_go_patterns(
     change: &SemanticChange,

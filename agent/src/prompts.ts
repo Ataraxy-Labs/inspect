@@ -385,6 +385,8 @@ function generateFindingQuestion(f: DetectorFinding): string | null {
     "null-return-introduced": `A null/None return was added. Do all callers handle null?`,
     "argument-order-swap": `Arguments may have been swapped. Verify the order matches the function signature.`,
     "callee-swap": `A different function is being called. Verify the replacement has compatible behavior.`,
+    "duplicate-method-def": `Ruby has no method overloading — the second definition replaces the first. Check all callers use the surviving signature.`,
+    "reduce-init-mismatch": `Verify the positional arguments in __reduce__'s return tuple match __init__'s parameter order exactly. Compare parameter-by-parameter.`,
   };
   return ruleQuestions[f.rule_id] ?? null;
 }
