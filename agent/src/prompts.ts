@@ -2,17 +2,17 @@ import { diffLines } from "diff";
 import type { DetectorFinding, EntityReview } from "./types.js";
 
 /** System prompt: review protocol, not just a bug list. */
-export const SYSTEM_PROMPT_CLAUDE = `You are a precision code reviewer. Find only high-confidence, concrete correctness bugs in changed code.
+export const SYSTEM_PROMPT_CLAUDE = `You are a precision code reviewer. Find only high-confidence, concrete correctness bugs.
 
-Review protocol:
-1. FIRST: analyze all code snippets provided below WITHOUT using tools. Identify concrete suspicions before any tool use.
-2. For every method shown (especially @Override, public API, or interface implementations), check:
-   - Contract check: does the implementation satisfy what the method name, interface, Javadoc, and callers expect?
-   - Return-value check: does it return the correct type/object, not a related but wrong one? (e.g., getX() must return X, not Y)
-   - Fluent/builder check: are return values from builder/fluent APIs captured, or silently discarded (making the call a no-op)?
-   - Dead code check: is any computed result unused or overwritten?
-   - Guard check: are safety checks (null guards, bounds checks, assertions) present where needed?
-3. Use tools ONLY to verify a specific suspicion — never for broad exploration.
+Review protocol — follow this order strictly:
+
+PHASE 1 (no tools): Read all provided code. For EACH entity with a "Contract:" block, verify the implementation satisfies the contract. Check:
+- Name/contract mismatch: if a method is named getX or documented "@return X", does it ACTUALLY return X? Flag if it returns a generic/default value instead.
+- Fluent/builder misuse: are return values from fluent/builder APIs captured? If discarded, the operation is a no-op.
+- Dead code: are any computed results unused or overwritten?
+- Guard removal: were safety checks (assertions, null guards) removed?
+
+PHASE 2 (tools): Use read/grep ONLY to confirm or refute your Phase 1 suspicions. Do not explore broadly.
 
 Do NOT report: style, naming, missing tests, documentation, suggestions, or issues in deleted-only code.
 
@@ -152,6 +152,12 @@ export function buildUserPrompt(
         }
       }
 
+      // Review cue: flag when method name implies a specific thing but body doesn't reference it
+      const cue = generateReviewCue(e);
+      if (cue) {
+        lines.push(`⚠️ **Review cue:** ${cue}`);
+      }
+
       const before = e.before_content ?? "";
 
       if (before && after && e.change_type === "Modified") {
@@ -271,6 +277,43 @@ function extractMethodContract(
       if (result.length > 10) return result;
     }
   }
+  return null;
+}
+
+/**
+ * Generate a review cue if the method name implies something specific
+ * but the implementation body doesn't reference it.
+ */
+function generateReviewCue(entity: EntityReview): string | null {
+  if (entity.entity_type !== "method") return null;
+  const body = entity.after_content ?? "";
+  if (!body) return null;
+
+  // Skip stubs — they're already flagged separately
+  if (body.includes("throw new UnsupportedOperationException(")) return null;
+
+  // Extract key terms from method name (e.g., "getBouncyCastleProvider" → ["bouncy", "castle"])
+  const name = entity.entity_name;
+  // Split camelCase/PascalCase into words
+  const nameWords = name
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 3 && !["get", "set", "create", "make", "build", "find", "load", "init", "with", "provider", "factory", "util", "utils", "helper", "service", "manager"].includes(w));
+
+  if (nameWords.length === 0) return null;
+
+  // Strip the method signature line(s) — only check the body
+  const bodyLines = body.split("\n");
+  const braceIdx = bodyLines.findIndex((l) => l.includes("{"));
+  const implBody = braceIdx >= 0 ? bodyLines.slice(braceIdx + 1).join("\n").toLowerCase() : body.toLowerCase();
+  const missingTerms = nameWords.filter((w) => !implBody.includes(w));
+
+  // If significant terms from the name are absent from the body, flag it
+  if (missingTerms.length > 0 && missingTerms.length >= nameWords.length / 2) {
+    return `Method name contains "${missingTerms.join(", ")}" but implementation body does not reference ${missingTerms.length === 1 ? "it" : "them"}. Verify the implementation matches the contract.`;
+  }
+
   return null;
 }
 
