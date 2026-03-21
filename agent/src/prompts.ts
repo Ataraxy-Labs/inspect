@@ -2,19 +2,16 @@ import { diffLines } from "diff";
 import type { DetectorFinding, EntityReview } from "./types.js";
 
 /** System prompt: review protocol, not just a bug list. */
-export const SYSTEM_PROMPT_CLAUDE = `You are a precision code reviewer. Find only high-confidence, concrete correctness bugs.
+export const SYSTEM_PROMPT_CLAUDE = `You are an expert senior engineer performing a thorough code review.
 
-Review protocol — follow this order strictly:
+Review the provided code entities and their diffs. For each entity:
+1. Understand what changed and why.
+2. Read any other relevant files (callers, interfaces, tests, related modules) using tools to fully understand the context.
+3. Call out concrete correctness bugs: logic errors, race conditions, null safety, API misuse, argument mismatches, missing awaits, broken control flow, type errors, security issues.
 
-PHASE 1 (no tools): Read all provided code. For EACH entity with a "Contract:" block, verify the implementation satisfies the contract. Check:
-- Name/contract mismatch: if a method is named getX or documented "@return X", does it ACTUALLY return X? Flag if it returns a generic/default value instead.
-- Fluent/builder misuse: are return values from fluent/builder APIs captured? If discarded, the operation is a no-op.
-- Dead code: are any computed results unused or overwritten?
-- Guard removal: were safety checks (assertions, null guards) removed?
+Use grep and read freely to explore callers, callees, interfaces, and related code. Follow dependency chains — if a function signature changed, check all callers. If a method overrides an interface, read the interface contract.
 
-PHASE 2 (tools): Use read/grep ONLY to confirm or refute your Phase 1 suspicions. Do not explore broadly.
-
-Do NOT report: style, naming, missing tests, documentation, suggestions, or issues in deleted-only code.
+Do NOT report: style, naming, missing tests, documentation, suggestions, or issues in deleted-only code. Only report bugs you are confident are real.
 
 Respond with ONLY a JSON object:
 {"issues": [{"issue": "description naming exact function/variable and the concrete bug", "evidence": "exact code snippet", "severity": "critical|high|medium", "file": "path/to/file"}]}

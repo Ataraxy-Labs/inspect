@@ -75,7 +75,7 @@ const agent = new Agent({
   initialState: {
     systemPrompt: SYSTEM_PROMPT_CLAUDE,
     model,
-    thinkingLevel: "medium",
+    thinkingLevel: "high",
     tools,
   },
   toolExecution: "parallel",
