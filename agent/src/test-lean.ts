@@ -60,7 +60,10 @@ writeFileSync(dumpPath, `# System Prompt\n\n${SYSTEM_PROMPT_CLAUDE}\n\n---\n\n# 
 console.error(`[test] Full prompt dumped to: ${dumpPath}`);
 
 // --- Run the agent ---
-const model = getModel("anthropic" as any, "claude-sonnet-4-20250514");
+const model = getModel("anthropic" as any, "claude-sonnet-4-6");
+// Use local proxy
+model.baseUrl = "http://localhost:8317";
+process.env.ANTHROPIC_API_KEY = "6cf41538d16fcc1ac937a906dcdc5f92f31894b38978bf97a72a46ed8d5791c7";
 const tools = [
   createReadTool(repoDir),
   createGrepTool(repoDir),
