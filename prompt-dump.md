@@ -1,16 +1,16 @@
 # System Prompt
 
-You are a precision code reviewer. Find only high-confidence, concrete correctness bugs in changed code.
+You are a precision code reviewer. Find only high-confidence, concrete correctness bugs.
 
-Review protocol:
-1. FIRST: analyze all code snippets provided below WITHOUT using tools. Identify concrete suspicions before any tool use.
-2. For every method shown (especially @Override, public API, or interface implementations), check:
-   - Contract check: does the implementation satisfy what the method name, interface, Javadoc, and callers expect?
-   - Return-value check: does it return the correct type/object, not a related but wrong one? (e.g., getX() must return X, not Y)
-   - Fluent/builder check: are return values from builder/fluent APIs captured, or silently discarded (making the call a no-op)?
-   - Dead code check: is any computed result unused or overwritten?
-   - Guard check: are safety checks (null guards, bounds checks, assertions) present where needed?
-3. Use tools ONLY to verify a specific suspicion — never for broad exploration.
+Review protocol — follow this order strictly:
+
+PHASE 1 (no tools): Read all provided code. For EACH entity with a "Contract:" block, verify the implementation satisfies the contract. Check:
+- Name/contract mismatch: if a method is named getX or documented "@return X", does it ACTUALLY return X? Flag if it returns a generic/default value instead.
+- Fluent/builder misuse: are return values from fluent/builder APIs captured? If discarded, the operation is a no-op.
+- Dead code: are any computed results unused or overwritten?
+- Guard removal: were safety checks (assertions, null guards) removed?
+
+PHASE 2 (tools): Use read/grep ONLY to confirm or refute your Phase 1 suspicions. Do not explore broadly.
 
 Do NOT report: style, naming, missing tests, documentation, suggestions, or issues in deleted-only code.
 
@@ -45,12 +45,12 @@ Top 30 entities across 12 files (from 79 total)
 - **[MEDIUM] type-change-propagation** `DefaultCryptoProvider` crypto/default/src/main/java/org/keycloak/crypto/def/DefaultCryptoProvider.java:46
   Type `DefaultCryptoProvider` was modified but 2 dependent(s) were not updated in this diff: FipsMode, Logger
   `Unchanged dependents: FipsMode, Logger` | risk=Critical(0.87) deps=2
-- **[HIGH] removed-guard** `detectProvider` common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java:1
-  Guard/assertion removed: `throw new IllegalStateException("Multiple crypto providers loaded with the class` — safety check may be lost
-  `throw new IllegalStateException("Multiple crypto providers loaded with the classLoader: " + classLoader +` | risk=Critical(1.58) deps=2
 - **[HIGH] removed-guard** `CryptoIntegration` common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java:1
   Guard/assertion removed: `throw new IllegalStateException("Multiple crypto providers loaded with the class` — safety check may be lost
   `throw new IllegalStateException("Multiple crypto providers loaded with the classLoader: " + classLoader +` | risk=Low(0.15) deps=172
+- **[HIGH] removed-guard** `detectProvider` common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java:1
+  Guard/assertion removed: `throw new IllegalStateException("Multiple crypto providers loaded with the class` — safety check may be lost
+  `throw new IllegalStateException("Multiple crypto providers loaded with the classLoader: " + classLoader +` | risk=Critical(1.58) deps=2
 
 ## common/src/main/java/org/keycloak/common/crypto/CryptoIntegration.java (Critical, 2 entities)
 ### `detectProvider` (method, modified) :55-73
@@ -155,6 +155,7 @@ KeyStore getKeyStore(KeystoreFormat format) throws KeyStoreException, NoSuchProv
 
 ### `concatenatedRSToASN1DER` (method, added) :102-122
 risk=Low(0.14) blast=10000 deps=10 **PUBLIC** | callers: AuthzClientCryptoProvider, getEcdsaCryptoProvider, ECDSAAlgorithmTest, test +6
+⚠️ **Review cue:** Method name contains "concatenated, rsto, asn1der" but implementation body does not reference them. Verify the implementation matches the contract.
 ```
 @Override
             public byte[] concatenatedRSToASN1DER(byte[] signature, int signLength) throws IOException {
@@ -271,6 +272,7 @@ CertificateUtilsProvider getCertificateUtils();
 
 ### `asn1derToConcatenatedRS` (method, added) :124-144
 risk=Low(0.13) blast=10000 deps=6 **PUBLIC** | callers: AuthzClientCryptoProvider, getEcdsaCryptoProvider, ECDSAAlgorithmTest, test +2
+⚠️ **Review cue:** Method name contains "asn1der" but implementation body does not reference it. Verify the implementation matches the contract.
 ```
 @Override
             public byte[] asn1derToConcatenatedRS(byte[] derEncodedSignatureValue, int signLength) throws IOException {
@@ -310,6 +312,7 @@ risk=Low(0.12) blast=10000 deps=3 **PUBLIC** | callers: AuthzClientCryptoProvide
 */
 Provider getBouncyCastleProvider();
 ```
+⚠️ **Review cue:** Method name contains "bouncy, castle" but implementation body does not reference them. Verify the implementation matches the contract.
 ```
 @Override
     public Provider getBouncyCastleProvider() {
