@@ -38,6 +38,15 @@ pub fn run_diff_heuristics(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
         check_await_removed(change, &before_lines, &after_lines, &mut findings);
     }
 
+    // Post-pass: content-only checks that don't need before/after pairs
+    for change in changes {
+        let after = match &change.after_content {
+            Some(a) => a,
+            None => continue,
+        };
+        check_unreachable_branch(change, after, &mut findings);
+    }
+
     findings
 }
 
@@ -833,6 +842,328 @@ fn returns_constant_identity(content: &str) -> bool {
         }
     }
     false
+}
+
+/// Detect if/else-if/else chains where earlier branches likely make later ones unreachable.
+///
+/// Patterns detected:
+/// 1. A variable is assigned from a function call (with no nullable indicators
+///    like `?`, `?? null`, `|| null`, `?.`), and then used in a truthiness check
+///    `if (var)`. The `else if` / `else` branches after such a check are dead code
+///    when the function always returns a value.
+/// 2. A function call is used directly in an if-condition: `if (getX())` with
+///    `else if` / `else` branches — if the function always returns a truthy value,
+///    the later branches are unreachable.
+fn check_unreachable_branch(
+    change: &SemanticChange,
+    after: &str,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    let lines: Vec<&str> = after.lines().collect();
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+
+        // Pattern 1: `if (VARNAME)` with preceding assignment
+        if let Some(var_name) = extract_if_truthiness_var(trimmed) {
+            if !has_else_branch(&lines, i) {
+                continue;
+            }
+
+            let lookback = i.min(8);
+            let mut found_non_nullable_assignment = false;
+            for j in (i.saturating_sub(lookback)..i).rev() {
+                let prev = lines[j].trim();
+                if is_non_nullable_assignment(prev, &var_name) {
+                    found_non_nullable_assignment = true;
+                    break;
+                }
+                // Skip blank lines but stop at block boundaries and comments
+                if prev.is_empty() {
+                    continue;
+                }
+                if prev.starts_with('}') || prev.starts_with("//") {
+                    break;
+                }
+            }
+
+            if found_non_nullable_assignment {
+                findings.push(make_finding(
+                    "unreachable-branch",
+                    &format!(
+                        "Variable `{}` is assigned from a non-nullable function call — \
+                         `else if`/`else` branches after `if ({})` may be unreachable",
+                        var_name, var_name
+                    ),
+                    0.6,
+                    Severity::Medium,
+                    change,
+                    trimmed,
+                    i + 1,
+                ));
+                continue;
+            }
+        }
+
+        // Pattern 2: `if (functionCall())` directly — function call in condition
+        if let Some(call_name) = extract_if_function_call(trimmed) {
+            if !has_else_branch(&lines, i) {
+                continue;
+            }
+
+            // Check that the function call doesn't have nullable indicators
+            let cond_part = trimmed;
+            if cond_part.contains('?')
+                || cond_part.contains("?? null")
+                || cond_part.contains("|| null")
+                || cond_part.contains("|| undefined")
+            {
+                continue;
+            }
+
+            // Higher confidence if function name suggests it always returns a value
+            // (getX, fetchX, computeX, buildX, createX patterns)
+            let always_returns = call_name.starts_with("get")
+                || call_name.starts_with("fetch")
+                || call_name.starts_with("compute")
+                || call_name.starts_with("build")
+                || call_name.starts_with("create")
+                || call_name.starts_with("find")
+                || call_name.starts_with("load")
+                || call_name.starts_with("resolve");
+
+            if always_returns {
+                findings.push(make_finding(
+                    "unreachable-branch",
+                    &format!(
+                        "Function `{}()` used in if-condition likely always returns a value — \
+                         `else if`/`else` branches may be unreachable",
+                        call_name,
+                    ),
+                    0.55,
+                    Severity::Medium,
+                    change,
+                    trimmed,
+                    i + 1,
+                ));
+            }
+        }
+    }
+}
+
+/// Extract a function call name from an if-condition like `if (getX(...))` or
+/// `if (obj.getX(...))`.
+fn extract_if_function_call(line: &str) -> Option<String> {
+    let stripped = line.trim();
+
+    if !stripped.starts_with("if ") && !stripped.starts_with("if(") {
+        return None;
+    }
+
+    let cond = if let Some(rest) = stripped.strip_prefix("if(").or_else(|| stripped.strip_prefix("if (")) {
+        let depth_end = rest.find(')')?;
+        rest[..depth_end].trim()
+    } else if let Some(rest) = stripped.strip_prefix("if ") {
+        let end = rest.find(|c: char| c == ':' || c == '{' || c == '\n').unwrap_or(rest.len());
+        rest[..end].trim()
+    } else {
+        return None;
+    };
+
+    // Must end with `)` indicating a function call (the outer paren is already stripped)
+    // Look for pattern: `identifier(` or `obj.identifier(`
+    if !cond.contains('(') {
+        return None;
+    }
+
+    // Find the function name before the first `(`
+    let paren_pos = cond.find('(')?;
+    let before_paren = cond[..paren_pos].trim();
+
+    // Get the last identifier (handles `obj.method` -> `method`)
+    let func_name = before_paren.rsplit('.').next()?;
+
+    if func_name.is_empty() || !func_name.chars().next()?.is_alphabetic() {
+        return None;
+    }
+
+    if func_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        Some(func_name.to_string())
+    } else {
+        None
+    }
+}
+
+/// Extract the variable name from a simple truthiness if-condition.
+/// Matches: `if (x)`, `if (x !== null)`, `if (x != null)`, `if (x !== undefined)`,
+///          `if x:`, `if x {`
+fn extract_if_truthiness_var(line: &str) -> Option<String> {
+    let stripped = line.trim();
+
+    // Must start with "if"
+    if !stripped.starts_with("if ") && !stripped.starts_with("if(") {
+        return None;
+    }
+
+    // Extract the condition inside parens or after `if `
+    let cond = if let Some(rest) = stripped.strip_prefix("if(").or_else(|| stripped.strip_prefix("if (")) {
+        // Find the matching close paren
+        let depth_end = rest.find(')')?;
+        rest[..depth_end].trim()
+    } else if let Some(rest) = stripped.strip_prefix("if ") {
+        // Python/Ruby style: `if var:` or `if var {`
+        let end = rest.find(|c: char| c == ':' || c == '{' || c == '\n').unwrap_or(rest.len());
+        rest[..end].trim()
+    } else {
+        return None;
+    };
+
+    if cond.is_empty() {
+        return None;
+    }
+
+    // Simple truthiness: just a variable name
+    if is_simple_identifier(cond) {
+        return Some(cond.to_string());
+    }
+
+    // `var !== null`, `var != null`, `var !== undefined`, `var != undefined`
+    for suffix in &[" !== null", " != null", " !== undefined", " != undefined", " != nil", " is not None"] {
+        if let Some(var) = cond.strip_suffix(suffix) {
+            let var = var.trim();
+            if is_simple_identifier(var) {
+                return Some(var.to_string());
+            }
+        }
+    }
+
+    // Compound condition: `var && other` or `var && other_var` — extract the first variable
+    // This catches `if (authConditions && filterConditions)` patterns
+    if let Some(first_part) = cond.split("&&").next() {
+        let first = first_part.trim();
+        if is_simple_identifier(first) {
+            return Some(first.to_string());
+        }
+        // Also handle `var !== null && ...`
+        for suffix in &[" !== null", " != null", " !== undefined", " != undefined"] {
+            if let Some(var) = first.strip_suffix(suffix) {
+                let var = var.trim();
+                if is_simple_identifier(var) {
+                    return Some(var.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if a string is a simple identifier (alphanumeric + underscores, not starting with digit).
+fn is_simple_identifier(s: &str) -> bool {
+    !s.is_empty()
+        && s.starts_with(|c: char| c.is_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Check if lines after index `if_line` contain an `else if` or `else` branch.
+fn has_else_branch(lines: &[&str], if_line: usize) -> bool {
+    let mut brace_depth: i32 = 0;
+    for j in if_line..lines.len().min(if_line + 30) {
+        let trimmed = lines[j].trim();
+
+        // Track whether depth hits zero mid-line (e.g. `} else if {`)
+        let mut dipped_to_zero = false;
+        for ch in trimmed.chars() {
+            match ch {
+                '{' => brace_depth += 1,
+                '}' => {
+                    brace_depth -= 1;
+                    if brace_depth <= 0 && j > if_line {
+                        dipped_to_zero = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // The brace that opened the if-block closed on this line
+        if j > if_line && dipped_to_zero {
+            if trimmed.contains("else") {
+                return true;
+            }
+            // Check the next line for `else` after a standalone `}`
+            if trimmed == "}" && j + 1 < lines.len() {
+                let next = lines[j + 1].trim();
+                if next.starts_with("else") || next.starts_with("} else") {
+                    return true;
+                }
+            }
+            if brace_depth <= 0 {
+                break; // block closed and no else found
+            }
+        }
+    }
+    false
+}
+
+/// Check if a line assigns `var_name` from a function call with no nullable indicators.
+///
+/// Matches patterns like:
+/// - `const x = getSomething();`
+/// - `let x = obj.getStuff(args);`
+/// - `var x = doWork();`
+/// - `x = computeValue();`
+/// - `x := fetchData()`
+///
+/// Rejects if the assignment contains `?`, `?? null`, `|| null`, `?.`, `?? undefined`.
+fn is_non_nullable_assignment(line: &str, var_name: &str) -> bool {
+    // Check that the line assigns to var_name
+    // Patterns: `const VAR =`, `let VAR =`, `var VAR =`, `VAR =`, `VAR :=`
+    let assign_patterns = [
+        format!("const {} =", var_name),
+        format!("let {} =", var_name),
+        format!("var {} =", var_name),
+        format!("let mut {} =", var_name),
+        format!("{} :=", var_name),
+    ];
+
+    let trimmed = line.trim();
+
+    let is_assignment = assign_patterns.iter().any(|p| trimmed.contains(p.as_str()))
+        || (trimmed.starts_with(var_name) && trimmed.contains(" = ") && !trimmed.contains("=="));
+
+    if !is_assignment {
+        return false;
+    }
+
+    // Get the RHS (everything after the first `=` that's not `==`)
+    let eq_pos = if let Some(pos) = trimmed.find(":=") {
+        pos + 2
+    } else if let Some(pos) = trimmed.find(" = ") {
+        pos + 3
+    } else {
+        return false;
+    };
+
+    let rhs = trimmed[eq_pos..].trim();
+
+    // Must contain a function call (parens)
+    if !rhs.contains('(') {
+        return false;
+    }
+
+    // Reject nullable indicators
+    if rhs.contains('?')
+        || rhs.contains("|| null")
+        || rhs.contains("|| undefined")
+        || rhs.contains("|| nil")
+        || rhs.contains("|| None")
+        || rhs.contains("or None")
+    {
+        return false;
+    }
+
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -1793,6 +2124,166 @@ func (c *GoogleConnector) Exchange(ctx context.Context, code string) (*Token, er
         assert!(
             !findings.iter().any(|f| f.rule_id == "deleted-extension-contract"),
             "Should NOT detect extension contract without identity+construction+lifecycle triplet: {:?}",
+            findings
+        );
+    }
+
+    fn make_added(after: &str) -> SemanticChange {
+        SemanticChange {
+            id: "test".to_string(),
+            entity_id: "test.ts::function::test".to_string(),
+            change_type: ChangeType::Added,
+            entity_type: "function".to_string(),
+            entity_name: "test".to_string(),
+            file_path: "test.ts".to_string(),
+            old_file_path: None,
+            before_content: None,
+            after_content: Some(after.to_string()),
+            commit_sha: None,
+            author: None,
+            timestamp: None,
+            structural_change: None,
+        }
+    }
+
+    #[test]
+    fn test_unreachable_branch_detected() {
+        let after = r#"const authConditions = getAuthorizationConditions();
+if (authConditions) {
+    applyFilter(authConditions);
+} else if (isAdmin) {
+    applyAll();
+} else {
+    deny();
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should detect unreachable branch after non-nullable assignment: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_unreachable_branch_not_flagged_with_nullable() {
+        let after = r#"const authConditions = getAuthorizationConditions() ?? null;
+if (authConditions) {
+    applyFilter(authConditions);
+} else {
+    deny();
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should NOT detect unreachable branch when nullable coalescing is used: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_unreachable_branch_not_flagged_with_optional_chaining() {
+        let after = r#"const result = obj?.getData();
+if (result) {
+    use(result);
+} else {
+    fallback();
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should NOT detect unreachable branch when optional chaining is used: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_unreachable_branch_not_flagged_without_else() {
+        let after = r#"const val = compute();
+if (val) {
+    use(val);
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should NOT detect unreachable branch when there is no else: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_unreachable_branch_not_flagged_without_assignment() {
+        let after = r#"if (userInput) {
+    process(userInput);
+} else {
+    showError();
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should NOT detect unreachable branch without preceding assignment: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_unreachable_branch_direct_function_call() {
+        let after = r#"const conditions = getAuthorizationConditions(userId);
+if (conditions) {
+    applyConditions(conditions);
+} else if (filterConditions) {
+    applyFilter(filterConditions);
+} else {
+    useDefaults();
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should detect unreachable branch with getAuthorizationConditions: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_unreachable_branch_inline_get_call() {
+        let after = r#"if (getBaseConditions(filter)) {
+    doSomething();
+} else {
+    fallback();
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should detect unreachable branch with inline getBaseConditions() call: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_unreachable_branch_compound_condition() {
+        let after = r#"const authConditions = await this.getAuthorizationConditions();
+const filterConditions = this.getFilterConditions();
+
+if (authConditions && filterConditions) {
+    return combine(authConditions, filterConditions);
+} else if (authConditions) {
+    return authConditions;
+} else if (filterConditions) {
+    return filterConditions;
+} else {
+    return defaults();
+}"#;
+        let change = make_added(after);
+        let findings = run_diff_heuristics(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "unreachable-branch"),
+            "Should detect unreachable branch with compound condition (authConditions && filterConditions): {:?}",
             findings
         );
     }

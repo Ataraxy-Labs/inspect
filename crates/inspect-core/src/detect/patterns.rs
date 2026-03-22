@@ -75,6 +75,11 @@ pub fn run_pattern_rules(changes: &[SemanticChange]) -> Vec<DetectorFinding> {
             Lang::Other => {}
         }
 
+        // Cross-language content-based patterns
+        check_case_insensitive_compare(change, after, &mut findings);
+        check_export_filename_mismatch(change, after, &lang, &mut findings);
+        check_error_message_context_mismatch(change, after, &mut findings);
+
         // Security patterns (language-agnostic where applicable)
         check_security_patterns(change, after, &lang, &mut findings);
     }
@@ -615,6 +620,246 @@ fn check_java_patterns(
 }
 
 // ---------------------------------------------------------------------------
+// Cross-language content-based patterns
+// ---------------------------------------------------------------------------
+
+/// Detect string comparisons (indexOf, includes, find) on user-input-like data
+/// (codes, tokens, emails, hex, hashes) without case normalization.
+fn check_case_insensitive_compare(
+    change: &SemanticChange,
+    after: &str,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    // Only worthwhile for languages that have these APIs
+    let has_case_norm = after.contains("toLowerCase")
+        || after.contains("toUpperCase")
+        || after.contains("localeCompare")
+        || after.contains(".lower()")
+        || after.contains(".upper()")
+        || after.contains(".casecmp")
+        || after.contains("to_lowercase")
+        || after.contains("to_uppercase")
+        || after.contains("EqualFold")
+        || after.contains("equalsIgnoreCase");
+
+    if has_case_norm {
+        return;
+    }
+
+    let compare_fns = ["indexOf(", "includes(", ".find(", ".index(", ".contains("];
+
+    // Context words that suggest user input or case-insensitive data
+    let context_words = [
+        "code", "Code", "token", "Token", "key", "Key",
+        "hex", "Hex", "hash", "Hash", "email", "Email",
+        "host", "Host", "domain", "Domain", "backup",
+        "Backup", "secret", "Secret", "otp", "OTP",
+    ];
+
+    let has_context = context_words.iter().any(|w| after.contains(w));
+    if !has_context {
+        return;
+    }
+
+    for (line_num, line) in after.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with("*") || trimmed.starts_with("#") {
+            continue;
+        }
+
+        let has_compare = compare_fns.iter().any(|f| trimmed.contains(f));
+        if !has_compare {
+            continue;
+        }
+
+        // Check that this specific line or nearby context references user-input-like data
+        let nearby = collect_lines(after, line_num.saturating_sub(2), 5);
+        let nearby_has_context = nearby.iter().any(|l| {
+            context_words.iter().any(|w| l.contains(w))
+        });
+
+        if nearby_has_context {
+            findings.push(finding(
+                "case-insensitive-compare-needed",
+                "String comparison (indexOf/includes/find) without case normalization on user input (codes/tokens/emails) — may fail on mixed-case input",
+                0.7,
+                Severity::Medium,
+                change,
+                trimmed,
+                line_num + 1,
+            ));
+            break; // one per entity
+        }
+    }
+}
+
+/// Detect exported function/class names that don't match the filename.
+/// e.g., function `TwoFactor` exported from `BackupCode.tsx`.
+fn check_export_filename_mismatch(
+    change: &SemanticChange,
+    after: &str,
+    lang: &Lang,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    // Only relevant for JS/TS where filename-export conventions are strong
+    if !matches!(lang, Lang::JsTs) {
+        return;
+    }
+
+    // Extract the base filename (without extension and path)
+    let file_name = change.file_path.rsplit('/').next().unwrap_or(&change.file_path);
+    let base_name = file_name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Skip index files and very short names
+    if base_name.is_empty() || base_name == "index" || base_name.len() < 3 {
+        return;
+    }
+
+    let entity_lower = change.entity_name.to_lowercase();
+
+    // Only check if this entity looks like a default/named export (function, class, component)
+    let is_export = after.contains("export default")
+        || after.contains("export function")
+        || after.contains("export const")
+        || after.contains("export class")
+        || after.contains(&format!("export {{ {} }}", change.entity_name));
+
+    if !is_export {
+        return;
+    }
+
+    // Check if entity name and base filename are significantly different
+    if !base_name.contains(&entity_lower) && !entity_lower.contains(&base_name) {
+        // Find the export line for evidence
+        let mut evidence_line = 1;
+        let mut evidence_text = &*change.entity_name;
+        for (line_num, line) in after.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.contains("export") && trimmed.contains(&change.entity_name) {
+                evidence_line = line_num + 1;
+                evidence_text = trimmed;
+                break;
+            }
+        }
+
+        findings.push(finding(
+            "export-filename-mismatch",
+            &format!(
+                "Exported name `{}` doesn't match filename `{}` — inconsistent naming may confuse imports",
+                change.entity_name, file_name,
+            ),
+            0.6,
+            Severity::Low,
+            change,
+            evidence_text,
+            evidence_line,
+        ));
+    }
+}
+
+/// Detect error/throw messages that reference operations mismatching the function/endpoint context.
+/// e.g., error says "backup code login" but function is a "disable" endpoint.
+fn check_error_message_context_mismatch(
+    change: &SemanticChange,
+    after: &str,
+    findings: &mut Vec<DetectorFinding>,
+) {
+    // Operation keywords that frequently appear in error messages
+    let operation_words = [
+        "login", "logout", "signup", "register", "disable", "enable",
+        "create", "delete", "update", "remove", "add", "reset",
+        "verify", "activate", "deactivate", "connect", "disconnect",
+    ];
+
+    let entity_lower = change.entity_name.to_lowercase();
+    let file_lower = change.file_path.to_lowercase();
+
+    for (line_num, line) in after.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") || trimmed.starts_with("*") || trimmed.starts_with("#") {
+            continue;
+        }
+
+        // Look for error/throw patterns with string literals
+        let is_error_line = trimmed.contains("throw ")
+            || trimmed.contains("Error(")
+            || trimmed.contains("error(")
+            || trimmed.contains("Error {")
+            || trimmed.contains("raise ")
+            || trimmed.contains("panic!(");
+
+        if !is_error_line {
+            continue;
+        }
+
+        // Extract string literals from the line
+        let error_text = extract_string_literals(trimmed).join(" ").to_lowercase();
+        if error_text.len() < 10 {
+            continue;
+        }
+
+        // Find operation words in the error message
+        for op in &operation_words {
+            if !error_text.contains(op) {
+                continue;
+            }
+
+            // Check if this operation word matches the entity/file context
+            let context_has_op = entity_lower.contains(op) || file_lower.contains(op);
+            if context_has_op {
+                continue; // matches — no mismatch
+            }
+
+            // Check if any OTHER operation word matches the entity/file context
+            let context_op = operation_words.iter().find(|other_op| {
+                *other_op != op && (entity_lower.contains(*other_op) || file_lower.contains(*other_op))
+            });
+
+            if let Some(actual_op) = context_op {
+                findings.push(finding(
+                    "error-message-context-mismatch",
+                    &format!(
+                        "Error message mentions '{}' but function/file context suggests '{}' — copy-paste or wrong message?",
+                        op, actual_op,
+                    ),
+                    0.6,
+                    Severity::Low,
+                    change,
+                    trimmed,
+                    line_num + 1,
+                ));
+                return; // one per entity
+            }
+        }
+    }
+}
+
+/// Extract string literal contents from a line (between quotes).
+fn extract_string_literals(line: &str) -> Vec<&str> {
+    let mut results = Vec::new();
+    let mut chars = line.char_indices().peekable();
+    while let Some((i, ch)) = chars.next() {
+        if ch == '"' || ch == '\'' || ch == '`' {
+            let quote = ch;
+            let start = i + 1;
+            for (j, c) in chars.by_ref() {
+                if c == quote && (j == 0 || line.as_bytes().get(j - 1) != Some(&b'\\')) {
+                    if j > start {
+                        results.push(&line[start..j]);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    results
+}
+
+// ---------------------------------------------------------------------------
 // Security patterns (cross-language)
 // ---------------------------------------------------------------------------
 
@@ -975,5 +1220,94 @@ mod tests {
         let change = make_change("Cache.java", "private static Map<String, Object> cache = new HashMap<>();");
         let findings = run_pattern_rules(&[change]);
         assert!(findings.iter().any(|f| f.rule_id == "synchronized-missing"), "Should detect unsynchronized static mutable: {:?}", findings);
+    }
+
+    // New detector tests
+
+    #[test]
+    fn test_case_insensitive_compare_indexof() {
+        let change = make_change(
+            "src/BackupCode.tsx",
+            "function validateCode(backupCodes: string[], code: string) {\n  return backupCodes.indexOf(code) >= 0;\n}",
+        );
+        let findings = run_pattern_rules(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "case-insensitive-compare-needed"),
+            "Should detect case-sensitive indexOf on codes: {:?}", findings
+        );
+    }
+
+    #[test]
+    fn test_case_insensitive_compare_with_tolowercase_ok() {
+        let change = make_change(
+            "src/BackupCode.tsx",
+            "function validateCode(backupCodes: string[], code: string) {\n  return backupCodes.indexOf(code.toLowerCase()) >= 0;\n}",
+        );
+        let findings = run_pattern_rules(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "case-insensitive-compare-needed"),
+            "Should NOT flag when toLowerCase is used: {:?}", findings
+        );
+    }
+
+    #[test]
+    fn test_export_filename_mismatch() {
+        let change = make_change(
+            "src/components/BackupCode.tsx",
+            "export default function TwoFactor() {\n  return <div>2FA</div>;\n}",
+        );
+        // Override entity_name
+        let mut change = change;
+        change.entity_name = "TwoFactor".to_string();
+        let findings = run_pattern_rules(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "export-filename-mismatch"),
+            "Should detect TwoFactor exported from BackupCode.tsx: {:?}", findings
+        );
+    }
+
+    #[test]
+    fn test_export_filename_match_ok() {
+        let change = make_change(
+            "src/components/BackupCode.tsx",
+            "export default function BackupCode() {\n  return <div>Backup</div>;\n}",
+        );
+        let mut change = change;
+        change.entity_name = "BackupCode".to_string();
+        let findings = run_pattern_rules(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "export-filename-mismatch"),
+            "Should NOT flag when name matches file: {:?}", findings
+        );
+    }
+
+    #[test]
+    fn test_error_message_context_mismatch() {
+        let change = make_change(
+            "src/api/disable-backup-code.ts",
+            "export async function disableBackupCode() {\n  throw new Error(\"backup code login failed\");\n}",
+        );
+        let mut change = change;
+        change.entity_name = "disableBackupCode".to_string();
+        let findings = run_pattern_rules(&[change]);
+        assert!(
+            findings.iter().any(|f| f.rule_id == "error-message-context-mismatch"),
+            "Should detect 'login' in error message for 'disable' endpoint: {:?}", findings
+        );
+    }
+
+    #[test]
+    fn test_error_message_context_match_ok() {
+        let change = make_change(
+            "src/api/login.ts",
+            "export async function login() {\n  throw new Error(\"login failed\");\n}",
+        );
+        let mut change = change;
+        change.entity_name = "login".to_string();
+        let findings = run_pattern_rules(&[change]);
+        assert!(
+            !findings.iter().any(|f| f.rule_id == "error-message-context-mismatch"),
+            "Should NOT flag when error message matches context: {:?}", findings
+        );
     }
 }
