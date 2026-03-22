@@ -11,6 +11,7 @@
     "@mariozechner/pi-agent-core": "latest",
     "@mariozechner/pi-ai": "latest",
     "@mariozechner/pi-coding-agent": "latest",
+    "parallel-web": "^0.3.2",
     "tsx": "^4.0.0"
   },
   "devDependencies": {
