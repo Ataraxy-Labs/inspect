@@ -7,7 +7,7 @@
  * Output (stdout JSON):
  *   { verdicts: [{ rule_id, entity_name, verdict, explanation }] }
  */
-import { getModel } from "@mariozechner/pi-ai";
+import { getModel, completeSimple } from "@mariozechner/pi-ai";
 import {
   createReadTool,
   createGrepTool,
@@ -20,6 +20,7 @@ import Parallel from "parallel-web";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import type { DetectorFinding, ValidateOutput } from "./types.js";
+import type { Context } from "@mariozechner/pi-ai";
 
 // ── Load .env ──
 const envPath = resolve(import.meta.dirname, "../../.env");
@@ -260,13 +261,80 @@ async function main() {
   const t0 = Date.now();
   await agent.prompt(userMessage);
   await agent.waitForIdle();
+
+  const reviewText = finalText;
+  process.stderr.write(`[review-diff] Review done: ${toolCalls} tool calls\n`);
+  process.stderr.write(`[review-diff] === RAW RESPONSE ===\n${reviewText}\n=== END RAW RESPONSE ===\n`);
+
+  // ── Turn 2: Separate extraction call on raw review text ──
+  // Use a FRESH model call (not the agent) to parse the raw review into structured JSON.
+  // This avoids the agent "forgetting" findings from its own review.
+  const extractModel = getModel(provider as any, modelId);
+  const extractionPrompt = `You are a code review extraction assistant. Below is a detailed code review written by a senior engineer. Your job is to extract ONLY concrete correctness bugs from the review text.
+
+RULES:
+- Extract issues where the reviewer identified a concrete functional impact (crashes, wrong behavior, data loss, security holes, race conditions, silent failures, incorrect values)
+- Include issues phrased as suggestions IF they describe a real functional problem (e.g., "consider using atomic increment" because the current code has a race condition)
+- Each issue must have a specific code reference (file, function, variable, or line)
+- DO NOT include: pure style/formatting preferences, naming-only nits, general "code smell" observations without functional impact, performance observations without correctness impact, missing test coverage notes, or architectural opinions
+- DO NOT invent issues not discussed in the review
+- When in doubt about whether something has functional impact, INCLUDE it
+
+Classify each bug:
+- "critical": crashes, data corruption, security vulnerabilities, complete feature breakage
+- "high": logic errors, wrong values, race conditions, silent failures
+- "medium": edge cases, misleading behavior, dead code with consequences
+
+Respond with ONLY this JSON, no other text:
+{"issues": [{"issue": "description naming exact function/variable and the concrete bug", "evidence": "exact code snippet or quote from the review", "severity": "critical|high|medium", "file": "path/to/file"}]}
+
+Return {"issues": []} if no concrete bugs were found.
+
+--- BEGIN CODE REVIEW ---
+${reviewText}
+--- END CODE REVIEW ---`;
+
+  process.stderr.write(`[review-diff] Running extraction with ${provider}/${modelId} (separate call)...\n`);
+
+  const extractCtx: Context = {
+    systemPrompt: "You extract structured bug reports from code review text. Extract issues with concrete functional impact. Include suggestions that describe real functional problems. Exclude pure style nits, naming preferences, and architectural opinions without correctness impact.",
+    messages: [
+      {
+        role: "user" as const,
+        content: extractionPrompt,
+        timestamp: Date.now(),
+      },
+    ],
+  };
+
+  let extractionText = "";
+  try {
+    const extractResult = await completeSimple(extractModel, extractCtx, {
+      temperature: 0,
+      maxTokens: 4096,
+    });
+    for (const part of extractResult.content) {
+      if (part.type === "text") extractionText += part.text;
+    }
+  } catch (e) {
+    process.stderr.write(`[review-diff] Extraction call failed: ${e}\n`);
+  }
+
   const elapsed = Date.now() - t0;
+  process.stderr.write(`[review-diff] Extraction done: ${(elapsed / 1000).toFixed(1)}s total\n`);
+  process.stderr.write(`[review-diff] === EXTRACTION RESPONSE ===\n${extractionText}\n=== END EXTRACTION RESPONSE ===\n`);
 
-  process.stderr.write(`[review-diff] Done: ${toolCalls} tool calls, ${(elapsed / 1000).toFixed(1)}s\n`);
-
-  // Parse the agent's free-form review into structured issues
-  const issues = parseReviewIntoIssues(finalText);
-  process.stderr.write(`[review-diff] Parsed ${issues.length} issues from response\n`);
+  // Parse the structured JSON response
+  let issues: RawIssue[] = [];
+  try {
+    const json = extractJson(extractionText);
+    const parsed = JSON.parse(json);
+    if (Array.isArray(parsed.issues)) issues = parsed.issues;
+  } catch {
+    process.stderr.write(`[review-diff] WARNING: JSON parse failed, falling back to heuristic parser\n`);
+    issues = parseReviewIntoIssues(reviewText);
+  }
+  process.stderr.write(`[review-diff] Parsed ${issues.length} issues\n`);
 
   // Build output
   const output: ValidateOutput = {
