@@ -14,6 +14,8 @@ Entity-level code review for Git. Every code review tool today works at the file
 
 This gets worse with AI-generated code. DORA 2025 found that AI adoption led to +154% PR size, +91% review time, and +9% more bugs shipped. Reviewers are drowning in noise.
 
+inspect gives you two ways to handle this: local triage that ranks changes by structural risk, and optional LLM-powered review that finds the actual bugs.
+
 ## What inspect Does
 
 For every changed entity, inspect computes:
@@ -52,6 +54,12 @@ entities (by risk):
     classification: text  score: 0.05  blast: 0  deps: 0/0
     cosmetic only (no structural change)
 ```
+
+## Two ways to use inspect
+
+**Local (free, open source):** CLI + MCP server. Entity triage, risk scoring, blast radius, commit untangling. No API key, no network calls. 5-67ms per commit. Works with any coding agent via MCP.
+
+**Cloud API (optional):** Full LLM-powered review via `inspect.ataraxy-labs.com`. Combines entity triage with 9 specialized review lenses. Or self-host the API with your own OpenAI key.
 
 ## Install
 
@@ -165,6 +173,34 @@ inspect catches **95% of all bugs** and **100% of high-severity bugs**. CodeRabb
 The approach: entity-level triage cuts 100+ changed entities to the 60 riskiest, then sends each to an LLM for review. This costs a fraction of reviewing the full diff, with higher recall than tools that scan everything.
 
 Dataset: [HuggingFace](https://huggingface.co/datasets/rs545837/inspect-greptile-bench). Judge: heuristic keyword matching applied identically to all tools.
+
+## Martian Benchmark (#1 on leaderboard)
+
+137 golden bugs, 50 PRs, GPT-5.2 judge. The standard benchmark for comparing code review tools.
+
+| Rank | Tool | F1 | Precision | Recall |
+|------|------|----|-----------|--------|
+| #1 | **inspect + GPT-5.2** | **46.1%** | **44.8%** | **47.4%** |
+| #2 | Augment | 45.8% | 37.3% | 59.1% |
+| #3 | Cursor Bugbot | 40.5% | 38.3% | 43.1% |
+| #4 | Propel | 38.1% | 38.9% | 37.2% |
+| #5 | Greptile | 35.1% | 33.8% | 36.5% |
+| #6 | Claude Code | 33.6% | 30.5% | 37.2% |
+| #7 | GitHub Copilot | 32.6% | 23.5% | 53.3% |
+| #8 | Baz | 30.3% | 34.6% | 27.0% |
+| #9 | Qodo | 30.1% | 23.4% | 42.3% |
+| #10 | CodeRabbit | 28.1% | 21.2% | 41.6% |
+| #11 | Gemini | 28.1% | 24.6% | 32.8% |
+| #12 | Kilo+Grok | 25.0% | 48.9% | 16.8% |
+
+## How the Review Works
+
+1. **Entity triage** ranks changes by graph signals: blast radius, dependents, public API, entity type
+2. Top 10 entities get BEFORE/AFTER source code sent alongside the diff
+3. **9 parallel review lenses**: 6 specialized (data correctness, concurrency, contracts, security, typos, runtime) + 3 general
+4. Structural filter drops findings that reference files not in the diff
+5. Validation pass confirms each finding against the actual code
+6. Top 7 findings returned
 
 ## Triage Benchmark
 

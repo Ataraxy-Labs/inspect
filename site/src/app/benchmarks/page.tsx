@@ -382,23 +382,177 @@ export default function BenchmarksPage() {
         </p>
       </section>
 
-      {/* How it works */}
+      {/* Martian Benchmark */}
       <section>
-        <h2>How it works</h2>
+        <h2>Martian Benchmark (137 golden bugs, 50 PRs)</h2>
         <p className="section-desc">
-          inspect runs entity-level triage locally (free, &lt;1s), then sends
-          the top entities to an LLM for focused review. The LLM sees
-          entity-scoped code with before/after context, not a raw diff.
+          The standard benchmark for comparing code review tools.
+          137 golden bugs, 50 PRs, GPT-5.2 judge. Results from the deployed API.
         </p>
 
-        <p style={{ fontSize: 13, color: "var(--dim)", marginTop: 20, lineHeight: 1.7 }}>
-          <strong style={{ color: "var(--fg)" }}>The pipeline.</strong> Run
-          inspect first (free, &lt;1s) to get entity risk rankings. Send top 30
-          entities to an LLM with before/after code + file diff. Gap-review
-          uncovered files. Dedup and filter by confidence. Top 15 findings per
-          PR. The triage step means the LLM sees focused code, not an entire
-          diff.
+        <div className="stat-cards">
+          <div className="stat-card" style={{ borderColor: "var(--green)" }}>
+            <div className="stat-value" style={{ color: "var(--green)" }}>46.1%</div>
+            <div className="stat-label">F1 score (#1)</div>
+            <div className="stat-detail">beats Augment (45.8%)</div>
+          </div>
+          <div className="stat-card" style={{ borderColor: "var(--cyan)" }}>
+            <div className="stat-value" style={{ color: "var(--cyan)" }}>44.8%</div>
+            <div className="stat-label">precision</div>
+            <div className="stat-detail">2nd highest overall</div>
+          </div>
+          <div className="stat-card" style={{ borderColor: "var(--purple)" }}>
+            <div className="stat-value" style={{ color: "var(--purple)" }}>47.4%</div>
+            <div className="stat-label">recall</div>
+            <div className="stat-detail">65 of 137 bugs found</div>
+          </div>
+        </div>
+
+        <div className="comparison-table">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Tool</th>
+                <th>F1</th>
+                <th>Precision</th>
+                <th>Recall</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td><strong style={{ color: "var(--accent)" }}>inspect + GPT-5.2</strong></td>
+                <td className="win">46.1%</td>
+                <td>44.8%</td>
+                <td>47.4%</td>
+              </tr>
+              <tr><td>2</td><td>Augment</td><td>45.8%</td><td>37.3%</td><td>59.1%</td></tr>
+              <tr><td>3</td><td>Cursor Bugbot</td><td>40.5%</td><td>38.3%</td><td>43.1%</td></tr>
+              <tr><td>4</td><td>Propel</td><td>38.1%</td><td>38.9%</td><td>37.2%</td></tr>
+              <tr><td>5</td><td>Greptile</td><td>35.1%</td><td>33.8%</td><td>36.5%</td></tr>
+              <tr><td>6</td><td>Claude Code</td><td>33.6%</td><td>30.5%</td><td>37.2%</td></tr>
+              <tr><td>7</td><td>GitHub Copilot</td><td>32.6%</td><td>23.5%</td><td>53.3%</td></tr>
+              <tr><td>8</td><td>Baz</td><td>30.3%</td><td>34.6%</td><td>27.0%</td></tr>
+              <tr><td>9</td><td>Qodo</td><td>30.1%</td><td>23.4%</td><td>42.3%</td></tr>
+              <tr><td>10</td><td>CodeRabbit</td><td>28.1%</td><td>21.2%</td><td>41.6%</td></tr>
+              <tr><td>11</td><td>Gemini</td><td>28.1%</td><td>24.6%</td><td>32.8%</td></tr>
+              <tr><td>12</td><td>Kilo+Grok</td><td>25.0%</td><td className="win">48.9%</td><td>16.8%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bench-group" style={{ marginTop: 24 }}>
+          <h3>F1 Score (top 6)</h3>
+          {[
+            { name: <><strong style={{ color: "var(--accent)" }}>inspect + GPT-5.2</strong></>, value: "46.1%", valueColor: "var(--green)", width: 46.1, cls: "inspect-bar" },
+            { name: "Augment", value: "45.8%", valueColor: undefined, width: 45.8, cls: "other-bar" },
+            { name: "Cursor Bugbot", value: "40.5%", valueColor: undefined, width: 40.5, cls: "other-bar" },
+            { name: "Propel", value: "38.1%", valueColor: undefined, width: 38.1, cls: "dim-bar" },
+            { name: "Greptile", value: "35.1%", valueColor: undefined, width: 35.1, cls: "dim-bar" },
+            { name: "Claude Code", value: "33.6%", valueColor: undefined, width: 33.6, cls: "dim-bar" },
+          ].map((row, i) => (
+            <div className="bench-row" key={i}>
+              <div className="bench-label">
+                <span className="name">{row.name}</span>
+                <span className="value" style={row.valueColor ? { color: row.valueColor } : undefined}>
+                  {row.value}
+                </span>
+              </div>
+              <div className="bench-bar-track">
+                <div className={`bench-bar ${row.cls}`} data-width={row.width}>
+                  {row.value}
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="bench-note">
+            137 golden bugs, 50 PRs, GPT-5.2 judge
+          </div>
+        </div>
+
+        <p style={{ fontSize: 12, color: "var(--dim2)", marginTop: 12, lineHeight: 1.7 }}>
+          Results from the deployed inspect API. Same benchmark, same judge for
+          all tools. inspect uses entity-level triage + 9 specialized review
+          lenses.
         </p>
+      </section>
+
+      {/* How it works */}
+      <section>
+        <h2>How the review works</h2>
+        <p className="section-desc">
+          Entity-level triage focuses the LLM on the code that matters.
+          9 parallel review lenses catch different categories of bugs.
+        </p>
+
+        <div className="flow">
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--green)", color: "var(--green)" }}>1</div>
+            <div className="flow-content">
+              <div className="title">Entity triage (local, &lt;1s)</div>
+              <div className="desc">
+                Rank all changed entities by risk score: blast radius, dependents,
+                public API, entity type.
+              </div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--cyan)", color: "var(--cyan)" }}>2</div>
+            <div className="flow-content">
+              <div className="title">BEFORE/AFTER extraction</div>
+              <div className="desc">
+                Top 10 entities get full source code from both sides of the diff, not just
+                the changed lines. 15K token budget.
+              </div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--yellow)", color: "var(--yellow)" }}>3</div>
+            <div className="flow-content">
+              <div className="title">9 parallel review lenses</div>
+              <div className="desc">
+                6 specialized (data correctness, concurrency, contracts, security, typos,
+                runtime) + 3 general at different temperatures. Run concurrently.
+              </div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--orange)", color: "var(--orange)" }}>4</div>
+            <div className="flow-content">
+              <div className="title">Merge + dedup</div>
+              <div className="desc">
+                Combine results from all lenses. Deduplicate by first 80 characters
+                of each finding.
+              </div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--purple)", color: "var(--purple)" }}>5</div>
+            <div className="flow-content">
+              <div className="title">Structural file filter</div>
+              <div className="desc">
+                Drop findings that reference files not in the diff. Eliminates
+                hallucinated file paths.
+              </div>
+            </div>
+          </div>
+          <div className="flow-connector"><div className="line" /></div>
+          <div className="flow-step">
+            <div className="flow-num" style={{ borderColor: "var(--red)", color: "var(--red)" }}>6</div>
+            <div className="flow-content">
+              <div className="title">Validation + top 7</div>
+              <div className="desc">
+                Validation pass confirms each finding against the actual code.
+                Top 7 findings returned by confidence.
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* Speed */}

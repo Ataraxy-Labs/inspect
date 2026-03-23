@@ -407,6 +407,12 @@ export default function DocsPage() {
       <section>
         <h2>HTTP API</h2>
         <p className="section-desc">
+          The CLI and MCP server run entirely locally with no network calls.
+          The HTTP API is optional, for teams that want hosted review without
+          managing LLM infrastructure. You can also self-host the API binary
+          with your own OpenAI key.
+        </p>
+        <p style={{ fontSize: 13, color: "var(--dim)", lineHeight: 1.7, marginBottom: 16 }}>
           REST API for integrating inspect into CI pipelines, bots, and custom
           workflows. Submit a PR, get back findings. Uses 9 specialized review
           lenses with entity-level triage and diff-aware validation.
