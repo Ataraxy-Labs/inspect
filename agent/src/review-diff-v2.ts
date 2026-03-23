@@ -41,65 +41,28 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-// ── System prompt (v4 — follows Anthropic prompting best practices) ──
+// ── System prompt (v8 — v3 breadth + anti-dismissal + stricter extraction + lenient validation) ──
 function buildSystemPrompt(repoDir: string): string {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short", month: "short", day: "numeric", year: "numeric",
   });
-  return `You are an expert senior engineer performing a thorough code review. Your goal is to find concrete correctness bugs that would cause wrong behavior in production.
+  return `You are an expert senior engineer with deep knowledge of software engineering best practices, security, performance, and maintainability.
 
-<instructions>
-1. Generate a high-level summary of the changes.
-2. Review each changed file and hunk. For each, explain what changed and check for bugs, logic errors, race conditions, type mismatches, broken callers, and incorrect behavior.
-3. For changed or removed public APIs, use Grep to search for callers repo-wide. Flag callers that weren't updated.
-4. Use Read tool to inspect entity code not visible in a truncated diff. Review ALL high-risk entities from the triage section, not just the first few files.
-5. Review test code for correctness bugs too: wrong assertions, wrong cleanup values, hardcoded strings that should be parameterized, and mismatched test descriptions.
-</instructions>
+Your task is to perform a thorough code review of the provided diff description. The diff description might be a git or bash command that generates the diff or a description of the diff which can then be used to generate the git or bash command to generate the full diff.
 
-<guidelines>
-Report a bug whenever the code as written would produce wrong behavior — even if existing code has the same pattern or the framework might handle it. The goal is to catch bugs before production, so err on the side of flagging.
+After reading the diff, do the following:
+1. Generate a high-level summary of the changes in the diff.
+2. Go file-by-file and review each changed hunk.
+3. Comment on what changed in that hunk (including the line range) and how it relates to other changed hunks and code, reading any other relevant files. Also call out bugs, hackiness, unnecessary code, naming inconsistencies, or too much shared mutable state.
+4. For any changed or removed public APIs, use Grep to search for callers repo-wide. Check if callers were updated to match the new signature/behavior. Flag broken callers.
+5. Use Read tool to inspect entity code not visible in a truncated diff. Review ALL high-risk entities from the triage section, not just the first few files.
+6. Review test code for correctness bugs too: wrong assertions, wrong cleanup values, hardcoded strings that should be parameterized, mismatched test descriptions, and typos.
 
 Do NOT dismiss bugs because the pattern is "pre-existing", "consistent with existing code", or "also present in other files." A bug is a bug regardless of whether old code has the same mistake. If this PR introduces or copies a buggy pattern, report it.
 
 Verify guards and type checks rather than assuming they're correct. For example, isinstance() may not match the actual runtime type if the object was created by a factory or subprocess.
 
-Unreachable code paths, dead branches, and always-true/always-false conditions are bugs worth reporting. They indicate logic errors, missing handling, or code that will silently break when assumptions change.
-
-When you see code calling a method or API, verify it actually exists in the target version. Standard library APIs change between language versions — a method present in Python 3.13+ may not exist in 3.12.
-
 When you identify a potential issue, state it clearly rather than dismissing it. Say "potential bug" if uncertain.
-</guidelines>
-
-<examples>
-<example>
-<review_excerpt>The forEach with async callback means promises are fire-and-forget. Errors are unhandled.</review_excerpt>
-<classification>BUG — fire-and-forget async causes silent failures and unhandled rejections</classification>
-</example>
-<example>
-<review_excerpt>The if-else chain has dead branches — config is always non-null so the fallback branch never executes.</review_excerpt>
-<classification>BUG — unreachable code indicates missing handling for the fallback case</classification>
-</example>
-<example>
-<review_excerpt>The type check uses the base class, but the factory creates a subclass that doesn't inherit from it on this platform.</review_excerpt>
-<classification>BUG — type check always returns false, so the guarded code path never executes</classification>
-</example>
-<example>
-<review_excerpt>Test teardown deletes a hardcoded key but the test creates entries with a dynamic key, so cleanup silently does nothing.</review_excerpt>
-<classification>BUG — test cleanup uses wrong identifier, leaving stale test data behind</classification>
-</example>
-<example>
-<review_excerpt>This pattern is the same as existing code in the file, so it's fine.</review_excerpt>
-<classification>BUG — pre-existing bugs are still bugs; report them if this PR introduces or copies the pattern</classification>
-</example>
-<example>
-<review_excerpt>Minor: the variable name could be more descriptive.</review_excerpt>
-<classification>SKIP — naming preference, no functional impact</classification>
-</example>
-<example>
-<review_excerpt>Consider adding input validation here for robustness.</review_excerpt>
-<classification>SKIP — defensive suggestion, current code is correct</classification>
-</example>
-</examples>
 
 Current working directory (cwd): ${repoDir}
 Today's date: ${today}`;
@@ -491,78 +454,47 @@ async function main() {
   process.stderr.write(`[review-v2] Review done: ${toolCalls} tool calls\n`);
   process.stderr.write(`[review-v2] === RAW RESPONSE ===\n${reviewText}\n=== END RAW RESPONSE ===\n`);
 
-  // ── Turn 2: Separate extraction call on raw review text ──
+  // ── Turn 2: Extract candidates from FULL review text ──
+  const extractSource = reviewText;
+  process.stderr.write(`[review-v2] Extraction source: full review text (${extractSource.length} chars)\n`);
+
   const extractModel = getModel(provider as any, modelId);
-  const extractionPrompt = `<review>
-${reviewText}
-</review>
+  const extractionPrompt = `You are a code review extraction assistant. Below is a code review. Your job is to extract ONLY concrete correctness bugs the reviewer identified.
 
-<task>
-Extract every concrete bug from the code review above.
+RULES — EXTRACT only issues that meet ALL of these criteria:
+1. The reviewer explicitly identifies a CONCRETE functional problem (crash, wrong value, data loss, security hole, broken caller, race condition, incorrect logic, unreachable code)
+2. The issue has a SPECIFIC code reference (file + function/variable/line)
+3. The reviewer explains WHY it's wrong (not just "consider" or "could be improved")
 
-<include>
-- Crashes, wrong behavior, logic errors, race conditions
-- Broken callers, type mismatches, API incompatibilities
-- Unreachable code, dead branches, always-true/always-false conditions
-- Security holes, data corruption
-- Wrong values in test code: wrong cleanup aliases, wrong assertions, mismatched descriptions
-- Bugs the reviewer noted but then dismissed as "pre-existing", "consistent with existing code", or "not introduced by this PR" — extract these too, a bug is a bug
-</include>
+DO NOT EXTRACT:
+- Suggestions phrased as "consider...", "might want to...", "could be improved by..." UNLESS the reviewer also states the current code is BROKEN
+- Missing features: "no rate limiting", "no validation", "no upper bound" — these are hardening suggestions, not bugs
+- Theoretical edge cases the reviewer hedges about: "if X were to happen...", "in theory..."
+- Style/naming issues with no functional impact (e.g., "misleading name" without a concrete lookup failure)
+- Redundant/duplicate reports of the same underlying bug in different files — pick the ONE best instance
+- Architectural opinions: "should use X pattern instead of Y"
+- Missing error handling for unlikely scenarios
 
-<exclude>
-- Style preferences, naming nits
-- Architectural opinions, refactoring suggestions
-- Test coverage suggestions ("add more tests")
-- Defensive suggestions where the reviewer confirms the code is currently correct
-</exclude>
-</task>
+Classify each bug:
+- "critical": crashes (NPE, TypeError, NoMethodError), data corruption, security vulnerabilities with concrete exploit path, complete feature breakage
+- "high": logic errors producing wrong values, race conditions with concrete trigger scenario, silent failures where operations are skipped, broken callers due to API changes
+- "medium": test correctness bugs (wrong assertion, mismatched description), dead code (unreachable branches, always-false conditions), wrong error messages that mislead debugging
 
-<examples>
-<example>
-<review_excerpt>Bug: the if-else chain has dead branches. config is always a non-null object, so the else-if and else fallback paths can never execute.</review_excerpt>
-<extracted>{"issue": "if-else chain has two unreachable branches: config is always a non-null object, so else-if and else fallback paths never execute", "evidence": "config is always non-null (returned by getConfig()), so the else-if and else branches can never execute", "severity": "medium", "file": "src/settings.ts"}</extracted>
-</example>
-<example>
-<review_excerpt>The forEach with async callback means promises are fire-and-forget. Errors from sendNotification are unhandled promise rejections.</review_excerpt>
-<extracted>{"issue": "forEach with async callback causes fire-and-forget promises — errors from sendNotification are unhandled promise rejections that may crash the process", "evidence": "users.forEach(async (user) => { ... sendNotification ... })", "severity": "high", "file": "notifications.ts"}</extracted>
-</example>
-<example>
-<review_excerpt>Test teardown deletes resource with hardcoded ID "default" but the test creates resources with "test-resource-" + i. This is the same pattern as other tests so it's fine.</review_excerpt>
-<extracted>{"issue": "Test teardown uses wrong ID 'default' instead of 'test-resource-' + i — cleanup silently fails to delete test resources", "evidence": "cleanup.delete(getResource('default')) — but resources were created as 'test-resource-' + i", "severity": "medium", "file": "resource_test.go"}</extracted>
-<note>Extracted despite reviewer dismissal — pre-existing bugs are still bugs</note>
-</example>
-<example>
-<review_excerpt>Minor: the variable name could be more descriptive. Consider renaming x to userCount.</review_excerpt>
-<extracted>SKIP — pure naming preference, no functional impact</extracted>
-</example>
-<example>
-<review_excerpt>This is fine for now but consider adding input validation for robustness.</review_excerpt>
-<extracted>SKIP — defensive suggestion, reviewer confirms code is currently correct</extracted>
-</example>
-</examples>
+For each issue, provide a short canonical_key (e.g., "null-deref-mainHostDestinationCalendar", "wrong-operator-and-vs-or").
 
-<format>
-Respond with ONLY a JSON object. No text before or after.
-{"issues": [{"issue": "description naming exact function/variable and the concrete bug", "evidence": "exact code snippet or quote from review", "severity": "critical|high|medium", "file": "path/to/file"}]}
+Respond with ONLY this JSON, no other text:
+{"issues": [{"issue": "description naming exact function/variable and the concrete bug", "evidence": "exact code snippet or quote from the review", "severity": "critical|high|medium", "file": "path/to/file", "canonical_key": "short-unique-bug-id"}]}
 
-Severity guide:
-- critical: crashes, data corruption, security vulnerabilities, complete feature breakage
-- high: logic errors, wrong values, race conditions, silent failures, broken callers
-- medium: edge cases, misleading behavior, unreachable code, dead branches, wrong test values
+Return {"issues": []} if no concrete issues were found.
 
-Return {"issues": []} if no concrete issues found.
-</format>`;
+--- BEGIN CODE REVIEW ---
+${extractSource}
+--- END CODE REVIEW ---`;
 
   process.stderr.write(`[review-v2] Running extraction with ${provider}/${modelId} (separate call)...\n`);
 
   const extractCtx: Context = {
-    systemPrompt: `You are a code review extraction assistant. You extract structured bug reports from code review text.
-
-<guidelines>
-When in doubt about whether something has functional impact, include it.
-If the reviewer identified a bug but then dismissed it (e.g., "pre-existing pattern", "not a concern", "consistent with existing code"), extract it anyway. A bug is a bug regardless of whether the reviewer decided to downplay it.
-Do not add issues the reviewer did not mention. Only extract what the review text describes.
-</guidelines>`,
+    systemPrompt: "You extract structured bug reports from code review text. Extract ONLY concrete correctness bugs: crashes, wrong behavior, broken callers, wrong values, logic errors, race conditions with concrete triggers, dead/unreachable code, test correctness bugs. DO NOT extract: style preferences, hardening suggestions (missing validation, missing rate limiting), theoretical edge cases, architectural opinions, or duplicate instances of the same bug. Be selective — quality over quantity.",
     messages: [
       {
         role: "user" as const,
@@ -585,20 +517,132 @@ Do not add issues the reviewer did not mention. Only extract what the review tex
     process.stderr.write(`[review-v2] Extraction call failed: ${e}\n`);
   }
 
-  const elapsed = Date.now() - t0;
-  process.stderr.write(`[review-v2] Extraction done: ${(elapsed / 1000).toFixed(1)}s total\n`);
   process.stderr.write(`[review-v2] === EXTRACTION RESPONSE ===\n${extractionText}\n=== END EXTRACTION RESPONSE ===\n`);
 
-  // Parse the structured JSON response
-  let issues: RawIssue[] = [];
+  // Parse extracted candidates
+  let candidates: (RawIssue & { canonical_key?: string })[] = [];
   try {
     const json = extractJson(extractionText);
     const parsed = JSON.parse(json);
-    if (Array.isArray(parsed.issues)) issues = parsed.issues;
+    if (Array.isArray(parsed.issues)) candidates = parsed.issues;
   } catch {
-    process.stderr.write(`[review-v2] WARNING: JSON parse failed\n`);
+    process.stderr.write(`[review-v2] WARNING: Extraction JSON parse failed\n`);
   }
-  process.stderr.write(`[review-v2] Parsed ${issues.length} issues\n`);
+  process.stderr.write(`[review-v2] Extracted ${candidates.length} candidates\n`);
+
+  // ── Deduplicate by canonical_key ──
+  const seen = new Set<string>();
+  const deduped: typeof candidates = [];
+  for (const c of candidates) {
+    const key = c.canonical_key?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? "";
+    if (key && seen.has(key)) {
+      process.stderr.write(`[review-v2] Dedup: skipping duplicate key "${c.canonical_key}"\n`);
+      continue;
+    }
+    if (key) seen.add(key);
+    deduped.push(c);
+  }
+  process.stderr.write(`[review-v2] After dedup: ${deduped.length} candidates (removed ${candidates.length - deduped.length})\n`);
+
+  // ── Lenient validation filter (v8): drop only obvious non-bugs ──
+  const validateModel = getModel(provider as any, modelId);
+  const validated: typeof deduped = [];
+
+  if (deduped.length > 0) {
+    const issueList = deduped.map((c, i) =>
+      `[${i}] [${c.severity}] ${c.issue} | file: ${c.file} | evidence: ${(c.evidence || "").slice(0, 200)}`
+    ).join("\n");
+
+    const validatePrompt = `You are a code review quality filter. Below are candidate bugs extracted from a code review. For each candidate, decide: KEEP or DROP.
+
+KEEP if the candidate describes a CONCRETE functional problem:
+- Crashes, null dereferences, type errors at runtime
+- Logic errors: wrong operator, inverted condition, wrong variable, wrong return value
+- Broken callers: API changed but callers not updated
+- Race conditions with a concrete trigger scenario
+- Silent failures: operations skipped due to fire-and-forget, wrong branch taken
+- Security vulnerabilities with a concrete exploit path
+- Dead code: unreachable branches, always-true/false conditions
+- Test bugs: wrong assertion value, wrong HTTP method, mismatched test name
+- Wrong error messages that actively mislead (e.g., says "login" in a "disable" endpoint)
+- Typos that cause functional failures (e.g., misspelled method name causing lookup miss)
+
+DROP if the candidate is:
+- A hardening suggestion: "add rate limiting", "add validation", "add upper bound", "add error handling"
+- A theoretical concern: "if someone were to...", "in a future scenario..."
+- A style/naming preference with no runtime impact
+- An architectural opinion: "should use X pattern"
+- A duplicate of another candidate (same root cause, different file)
+- Missing feature rather than broken feature
+
+Respond with ONLY a JSON array of indices to KEEP, e.g.: [0, 1, 3, 5]
+If all should be kept: return all indices. If none: return [].
+
+CANDIDATES:
+${issueList}`;
+
+    const validateCtx: Context = {
+      systemPrompt: "You filter code review candidates. Keep concrete bugs. Drop hardening suggestions, style nits, theoretical concerns, and duplicates. When uncertain, KEEP.",
+      messages: [{ role: "user" as const, content: validatePrompt, timestamp: Date.now() }],
+    };
+
+    let validateText = "";
+    try {
+      const validateResult = await completeSimple(validateModel, validateCtx, {
+        temperature: 0,
+        maxTokens: 1024,
+      });
+      for (const part of validateResult.content) {
+        if (part.type === "text") validateText += part.text;
+      }
+    } catch (e) {
+      process.stderr.write(`[review-v2] Validation call failed: ${e}\n`);
+      // On failure, keep all candidates
+      validated.push(...deduped);
+    }
+
+    if (validated.length === 0) {
+      // Parse the keep indices
+      try {
+        const match = validateText.match(/\[[\d\s,]*\]/);
+        if (match) {
+          const keepIndices: number[] = JSON.parse(match[0]);
+          for (const idx of keepIndices) {
+            if (idx >= 0 && idx < deduped.length) {
+              validated.push(deduped[idx]);
+            }
+          }
+          process.stderr.write(`[review-v2] Validation: kept ${validated.length}/${deduped.length} (dropped ${deduped.length - validated.length})\n`);
+          // Log what was dropped
+          for (let i = 0; i < deduped.length; i++) {
+            if (!keepIndices.includes(i)) {
+              process.stderr.write(`[review-v2] Validation dropped [${i}]: ${deduped[i].canonical_key} — ${deduped[i].issue.slice(0, 80)}\n`);
+            }
+          }
+        } else {
+          process.stderr.write(`[review-v2] Validation parse failed, keeping all\n`);
+          validated.push(...deduped);
+        }
+      } catch {
+        process.stderr.write(`[review-v2] Validation JSON parse failed, keeping all\n`);
+        validated.push(...deduped);
+      }
+    }
+  }
+
+  process.stderr.write(`[review-v2] After validation: ${validated.length} candidates\n`);
+
+  // Sort by severity, cap at 6
+  let issues = validated;
+  const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2 };
+  issues.sort((a, b) => (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3));
+  if (issues.length > 6) {
+    issues = issues.slice(0, 6);
+    process.stderr.write(`[review-v2] Capped to 6 issues\n`);
+  }
+
+  const elapsed = Date.now() - t0;
+  process.stderr.write(`[review-v2] Total: ${(elapsed / 1000).toFixed(1)}s, ${toolCalls} tool calls, ${issues.length} final issues\n`);
 
   // Build output
   const output: ValidateOutput = {
