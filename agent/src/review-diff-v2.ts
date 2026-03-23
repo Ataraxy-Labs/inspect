@@ -41,20 +41,65 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-// ── System prompt (same as v1 — thorough code review) ──
+// ── System prompt (v4 — follows Anthropic prompting best practices) ──
 function buildSystemPrompt(repoDir: string): string {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short", month: "short", day: "numeric", year: "numeric",
   });
-  return `You are an expert senior engineer with deep knowledge of software engineering best practices, security, performance, and maintainability.
+  return `You are an expert senior engineer performing a thorough code review. Your goal is to find concrete correctness bugs that would cause wrong behavior in production.
 
-Your task is to perform a thorough code review of the provided diff description. The diff description might be a git or bash command that generates the diff or a description of the diff which can then be used to generate the git or bash command to generate the full diff.
+<instructions>
+1. Generate a high-level summary of the changes.
+2. Review each changed file and hunk. For each, explain what changed and check for bugs, logic errors, race conditions, type mismatches, broken callers, and incorrect behavior.
+3. For changed or removed public APIs, use Grep to search for callers repo-wide. Flag callers that weren't updated.
+4. Use Read tool to inspect entity code not visible in a truncated diff. Review ALL high-risk entities from the triage section, not just the first few files.
+5. Review test code for correctness bugs too: wrong assertions, wrong cleanup values, hardcoded strings that should be parameterized, and mismatched test descriptions.
+</instructions>
 
-After reading the diff, do the following:
-1. Generate a high-level summary of the changes in the diff.
-2. Go file-by-file and review each changed hunk.
-3. Comment on what changed in that hunk (including the line range) and how it relates to other changed hunks and code, reading any other relevant files. Also call out bugs, hackiness, unnecessary code, or too much shared mutable state.
-4. For any changed or removed public APIs, use Grep to search for callers repo-wide. Check if callers were updated to match the new signature/behavior. Flag broken callers.
+<guidelines>
+Report a bug whenever the code as written would produce wrong behavior — even if existing code has the same pattern or the framework might handle it. The goal is to catch bugs before production, so err on the side of flagging.
+
+Do NOT dismiss bugs because the pattern is "pre-existing", "consistent with existing code", or "also present in other files." A bug is a bug regardless of whether old code has the same mistake. If this PR introduces or copies a buggy pattern, report it.
+
+Verify guards and type checks rather than assuming they're correct. For example, isinstance() may not match the actual runtime type if the object was created by a factory or subprocess.
+
+Unreachable code paths, dead branches, and always-true/always-false conditions are bugs worth reporting. They indicate logic errors, missing handling, or code that will silently break when assumptions change.
+
+When you see code calling a method or API, verify it actually exists in the target version. Standard library APIs change between language versions — a method present in Python 3.13+ may not exist in 3.12.
+
+When you identify a potential issue, state it clearly rather than dismissing it. Say "potential bug" if uncertain.
+</guidelines>
+
+<examples>
+<example>
+<review_excerpt>The forEach with async callback means promises are fire-and-forget. Errors are unhandled.</review_excerpt>
+<classification>BUG — fire-and-forget async causes silent failures and unhandled rejections</classification>
+</example>
+<example>
+<review_excerpt>The if-else chain has dead branches — config is always non-null so the fallback branch never executes.</review_excerpt>
+<classification>BUG — unreachable code indicates missing handling for the fallback case</classification>
+</example>
+<example>
+<review_excerpt>The type check uses the base class, but the factory creates a subclass that doesn't inherit from it on this platform.</review_excerpt>
+<classification>BUG — type check always returns false, so the guarded code path never executes</classification>
+</example>
+<example>
+<review_excerpt>Test teardown deletes a hardcoded key but the test creates entries with a dynamic key, so cleanup silently does nothing.</review_excerpt>
+<classification>BUG — test cleanup uses wrong identifier, leaving stale test data behind</classification>
+</example>
+<example>
+<review_excerpt>This pattern is the same as existing code in the file, so it's fine.</review_excerpt>
+<classification>BUG — pre-existing bugs are still bugs; report them if this PR introduces or copies the pattern</classification>
+</example>
+<example>
+<review_excerpt>Minor: the variable name could be more descriptive.</review_excerpt>
+<classification>SKIP — naming preference, no functional impact</classification>
+</example>
+<example>
+<review_excerpt>Consider adding input validation here for robustness.</review_excerpt>
+<classification>SKIP — defensive suggestion, current code is correct</classification>
+</example>
+</examples>
 
 Current working directory (cwd): ${repoDir}
 Today's date: ${today}`;
@@ -148,7 +193,61 @@ function buildEntityTriage(entities: EntityReview[]): string {
   return lines.join("\n");
 }
 
+// ── Reorder diff: put high-risk files first for large diffs ──
+function reorderDiff(diff: string, entities: EntityReview[]): string {
+  if (!entities.length || diff.length < 80_000) return diff;
+
+  // Get priority files from BEHAVIORAL/NEW_LOGIC high-risk entities
+  const meaningful = entities.filter(e => e.entity_type !== "chunk");
+  const priorityFiles = new Set<string>();
+  for (const e of meaningful) {
+    const cat = categorizeEntity(e);
+    if (cat === "BEHAVIORAL" || (cat === "NEW_LOGIC" && e.risk_score >= 0.4)) {
+      priorityFiles.add(e.file_path);
+    }
+  }
+  if (priorityFiles.size === 0) return diff;
+
+  // Split diff into per-file hunks
+  const filePattern = /^diff --git a\/.+$/gm;
+  const splits: { file: string; content: string; priority: boolean }[] = [];
+  let match: RegExpExecArray | null;
+  const indices: number[] = [];
+  while ((match = filePattern.exec(diff)) !== null) {
+    indices.push(match.index);
+  }
+
+  for (let i = 0; i < indices.length; i++) {
+    const start = indices[i];
+    const end = i + 1 < indices.length ? indices[i + 1] : diff.length;
+    const chunk = diff.slice(start, end);
+    // Extract filename from "diff --git a/path b/path"
+    const fileMatch = chunk.match(/^diff --git a\/(.+?) b\//);
+    const file = fileMatch ? fileMatch[1] : "";
+    const isPriority = [...priorityFiles].some(pf => file.endsWith(pf) || pf.endsWith(file) || file.includes(pf) || pf.includes(file));
+    splits.push({ file, content: chunk, priority: isPriority });
+  }
+
+  // If there's content before the first diff header (unlikely), preserve it
+  if (indices.length > 0 && indices[0] > 0) {
+    const prefix = diff.slice(0, indices[0]);
+    if (prefix.trim()) {
+      splits.unshift({ file: "", content: prefix, priority: false });
+    }
+  }
+
+  // Sort: priority files first, then original order
+  const prioritySplits = splits.filter(s => s.priority);
+  const otherSplits = splits.filter(s => !s.priority);
+
+  if (prioritySplits.length === 0) return diff;
+
+  const reordered = [...prioritySplits, ...otherSplits].map(s => s.content).join("");
+  return reordered;
+}
+
 // ── Build user message: entities + detector hints + diff ──
+// Follows Anthropic guide: longform data at top, query at bottom, XML tags for structure
 function buildUserMessage(
   prTitle: string,
   diff: string,
@@ -157,48 +256,59 @@ function buildUserMessage(
 ): string {
   const parts: string[] = [];
 
-  parts.push(`Review the following diff: ${prTitle || "Unstaged changes"}`);
+  // Reorder diff to prioritize high-risk files for large diffs
+  const reorderedDiff = reorderDiff(diff, entities);
 
-  // For large diffs, add explicit priority instruction
-  const isLargeDiff = diff.length > 80_000;
-  if (isLargeDiff && entities.length > 0) {
-    parts.push("");
-    parts.push("⚠️ LARGE DIFF — This PR has a large diff that may be truncated below. To ensure full coverage:");
-    parts.push("1. Start by reviewing ALL BEHAVIORAL and high-risk entities listed below — use Read tool if their code is not in the visible diff");
-    parts.push("2. For each BEHAVIORAL entity, Read the full function and check for correctness bugs");
-    parts.push("3. Do NOT spend all your time on the first few files — budget attention across all high-risk entities");
-    parts.push("4. Use web_search to verify unfamiliar APIs, CSS properties, or library methods if unsure whether something is correct");
+  // Longform data FIRST (Anthropic: "put longform data at the top, queries at the end")
+  // Cap diff at 120k chars
+  if (reorderedDiff.length > 120_000) {
+    parts.push(`<diff>\n${reorderedDiff.slice(0, 120_000)}\n... (diff truncated — use Read tool to inspect remaining files listed in changed_entities above)\n</diff>`);
+  } else {
+    parts.push(`<diff>\n${reorderedDiff}\n</diff>`);
   }
 
-  // Entity triage — full map of what changed
+  // Entity triage — structured context about what changed
   const triage = buildEntityTriage(entities);
   if (triage) {
     parts.push("");
-    parts.push(triage);
-    parts.push("");
+    parts.push(`<changed_entities>\n${triage}\n</changed_entities>`);
   }
 
   // Detector findings as noisy hints
   if (findings.length > 0) {
+    const findingsText = findings.map(f =>
+      `[${f.severity.toUpperCase()}] ${f.rule_id}: ${f.entity_name} in ${f.file_path}:${f.start_line}\n  ${f.message}\n  Evidence: ${f.evidence}`
+    ).join("\n");
     parts.push("");
-    parts.push(`--- DETECTOR FINDINGS (${findings.length}) ---`);
-    parts.push("Static analysis flagged these potential issues. Many may be false positives. Use them as hints for where to look, but only report an issue if you can independently verify a concrete bug:");
-    parts.push("");
-    for (const f of findings) {
-      parts.push(`⚠️ [${f.severity.toUpperCase()}] ${f.rule_id}: \`${f.entity_name}\` in ${f.file_path}:${f.start_line}`);
-      parts.push(`   ${f.message}`);
-      parts.push(`   Evidence: ${f.evidence}`);
-    }
-    parts.push("--- END DETECTOR FINDINGS ---");
-    parts.push("");
+    parts.push(`<detector_findings note="Static analysis hints. Many are false positives. Only report if you independently verify a concrete bug.">\n${findingsText}\n</detector_findings>`);
   }
 
-  // Cap diff at 120k chars
-  if (diff.length > 120_000) {
-    parts.push(diff.slice(0, 120_000));
-    parts.push("\n... (diff truncated — use Read tool to inspect remaining files listed in CHANGED ENTITIES above)");
+  // Query LAST (Anthropic: "queries at the end can improve response quality by up to 30%")
+  parts.push("");
+  const isLargeDiff = diff.length > 80_000;
+  if (isLargeDiff && entities.length > 0) {
+    // Build a concrete priority reading list of top BEHAVIORAL/NEW_LOGIC files the agent MUST check
+    const meaningful = entities.filter(e => e.entity_type !== "chunk");
+    const priorityEntities = meaningful
+      .filter(e => {
+        const cat = categorizeEntity(e);
+        return cat === "BEHAVIORAL" || (cat === "NEW_LOGIC" && e.risk_score >= 0.4);
+      })
+      .sort((a, b) => b.risk_score - a.risk_score)
+      .slice(0, 8);
+    const uniqueFiles = [...new Set(priorityEntities.map(e => e.file_path))];
+    const priorityList = uniqueFiles.slice(0, 5).map(f => `  - ${f}`).join("\n");
+
+    parts.push(`<query>
+Review this diff: ${prTitle || "Unstaged changes"}
+
+This is a large diff (${entities.length} entities) that may be truncated. Before writing your review, use Read tool to inspect these high-risk files that may not be fully visible in the diff:
+${priorityList}
+
+After reading those, review the full diff systematically. Budget attention across ALL distinct code areas, not just the first files you encounter.
+</query>`);
   } else {
-    parts.push(diff);
+    parts.push(`<query>Review this diff: ${prTitle || "Unstaged changes"}</query>`);
   }
 
   return parts.join("\n");
@@ -383,34 +493,76 @@ async function main() {
 
   // ── Turn 2: Separate extraction call on raw review text ──
   const extractModel = getModel(provider as any, modelId);
-  const extractionPrompt = `You are a code review extraction assistant. Below is a detailed code review written by a senior engineer. Your job is to extract concrete correctness issues from the review text.
-
-RULES:
-- Extract issues where the reviewer identified a concrete functional impact (crashes, wrong behavior, data loss, security holes, race conditions, silent failures, incorrect values)
-- Include issues phrased as suggestions IF they describe a real functional problem (e.g., "consider using atomic increment" because the current code has a race condition)
-- Each issue must have a specific code reference (file, function, variable, or line)
-- DO NOT include: pure style/formatting preferences, naming-only nits, general "code smell" observations without functional impact, performance observations without correctness impact, missing test coverage notes, or architectural opinions
-- DO NOT invent issues not discussed in the review
-- When in doubt about whether something has functional impact, INCLUDE it
-
-Classify each bug:
-- "critical": crashes, data corruption, security vulnerabilities, complete feature breakage
-- "high": logic errors, wrong values, race conditions, silent failures
-- "medium": edge cases, misleading behavior, dead code with consequences
-
-Respond with ONLY this JSON, no other text:
-{"issues": [{"issue": "description naming exact function/variable and the concrete bug", "evidence": "exact code snippet or quote from the review", "severity": "critical|high|medium", "file": "path/to/file"}]}
-
-Return {"issues": []} if no concrete issues were found.
-
---- BEGIN CODE REVIEW ---
+  const extractionPrompt = `<review>
 ${reviewText}
---- END CODE REVIEW ---`;
+</review>
+
+<task>
+Extract every concrete bug from the code review above.
+
+<include>
+- Crashes, wrong behavior, logic errors, race conditions
+- Broken callers, type mismatches, API incompatibilities
+- Unreachable code, dead branches, always-true/always-false conditions
+- Security holes, data corruption
+- Wrong values in test code: wrong cleanup aliases, wrong assertions, mismatched descriptions
+- Bugs the reviewer noted but then dismissed as "pre-existing", "consistent with existing code", or "not introduced by this PR" — extract these too, a bug is a bug
+</include>
+
+<exclude>
+- Style preferences, naming nits
+- Architectural opinions, refactoring suggestions
+- Test coverage suggestions ("add more tests")
+- Defensive suggestions where the reviewer confirms the code is currently correct
+</exclude>
+</task>
+
+<examples>
+<example>
+<review_excerpt>Bug: the if-else chain has dead branches. config is always a non-null object, so the else-if and else fallback paths can never execute.</review_excerpt>
+<extracted>{"issue": "if-else chain has two unreachable branches: config is always a non-null object, so else-if and else fallback paths never execute", "evidence": "config is always non-null (returned by getConfig()), so the else-if and else branches can never execute", "severity": "medium", "file": "src/settings.ts"}</extracted>
+</example>
+<example>
+<review_excerpt>The forEach with async callback means promises are fire-and-forget. Errors from sendNotification are unhandled promise rejections.</review_excerpt>
+<extracted>{"issue": "forEach with async callback causes fire-and-forget promises — errors from sendNotification are unhandled promise rejections that may crash the process", "evidence": "users.forEach(async (user) => { ... sendNotification ... })", "severity": "high", "file": "notifications.ts"}</extracted>
+</example>
+<example>
+<review_excerpt>Test teardown deletes resource with hardcoded ID "default" but the test creates resources with "test-resource-" + i. This is the same pattern as other tests so it's fine.</review_excerpt>
+<extracted>{"issue": "Test teardown uses wrong ID 'default' instead of 'test-resource-' + i — cleanup silently fails to delete test resources", "evidence": "cleanup.delete(getResource('default')) — but resources were created as 'test-resource-' + i", "severity": "medium", "file": "resource_test.go"}</extracted>
+<note>Extracted despite reviewer dismissal — pre-existing bugs are still bugs</note>
+</example>
+<example>
+<review_excerpt>Minor: the variable name could be more descriptive. Consider renaming x to userCount.</review_excerpt>
+<extracted>SKIP — pure naming preference, no functional impact</extracted>
+</example>
+<example>
+<review_excerpt>This is fine for now but consider adding input validation for robustness.</review_excerpt>
+<extracted>SKIP — defensive suggestion, reviewer confirms code is currently correct</extracted>
+</example>
+</examples>
+
+<format>
+Respond with ONLY a JSON object. No text before or after.
+{"issues": [{"issue": "description naming exact function/variable and the concrete bug", "evidence": "exact code snippet or quote from review", "severity": "critical|high|medium", "file": "path/to/file"}]}
+
+Severity guide:
+- critical: crashes, data corruption, security vulnerabilities, complete feature breakage
+- high: logic errors, wrong values, race conditions, silent failures, broken callers
+- medium: edge cases, misleading behavior, unreachable code, dead branches, wrong test values
+
+Return {"issues": []} if no concrete issues found.
+</format>`;
 
   process.stderr.write(`[review-v2] Running extraction with ${provider}/${modelId} (separate call)...\n`);
 
   const extractCtx: Context = {
-    systemPrompt: "You extract structured bug reports from code review text. Extract issues with concrete functional impact. Include suggestions that describe real functional problems. Exclude pure style nits, naming preferences, and architectural opinions without correctness impact.",
+    systemPrompt: `You are a code review extraction assistant. You extract structured bug reports from code review text.
+
+<guidelines>
+When in doubt about whether something has functional impact, include it.
+If the reviewer identified a bug but then dismissed it (e.g., "pre-existing pattern", "not a concern", "consistent with existing code"), extract it anyway. A bug is a bug regardless of whether the reviewer decided to downplay it.
+Do not add issues the reviewer did not mention. Only extract what the review text describes.
+</guidelines>`,
     messages: [
       {
         role: "user" as const,
