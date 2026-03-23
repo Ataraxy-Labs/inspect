@@ -41,8 +41,8 @@ export default function HomePage() {
           }}
         >
           Entity-level code review for Git. Graph-based risk scoring identifies
-          which functions need careful review. #1 on the Martian code review
-          leaderboard. 95% recall on Greptile. 5-67ms per commit.
+          which functions need careful review. 95% recall on Greptile. 5-67ms
+          per commit.
         </p>
         <div
           className="install-box"

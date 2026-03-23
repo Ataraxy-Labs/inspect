@@ -43,7 +43,7 @@ export default function HomePage() {
           Entity-level code review for Git. Know if a change is a rename,
           a signature change, or a new dependency before reading a single line.
           Graph-based risk scoring tells you what's dangerous vs cosmetic.
-          #1 on the Martian code review leaderboard. 95% recall on Greptile. 5-67ms per commit.
+          95% recall on Greptile. 5-67ms per commit.
         </p>
         <div
           className="install-box"
