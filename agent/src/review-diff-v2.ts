@@ -41,7 +41,7 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-// ── System prompt (v8 — v3 breadth + anti-dismissal + stricter extraction + lenient validation) ──
+// ── System prompt (v9 — v3 breadth + anti-dismissal + bug-class extraction + scored validation) ──
 function buildSystemPrompt(repoDir: string): string {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short", month: "short", day: "numeric", year: "numeric",
@@ -459,31 +459,46 @@ async function main() {
   process.stderr.write(`[review-v2] Extraction source: full review text (${extractSource.length} chars)\n`);
 
   const extractModel = getModel(provider as any, modelId);
-  const extractionPrompt = `You are a code review extraction assistant. Below is a code review. Your job is to extract ONLY concrete correctness bugs the reviewer identified.
+  const extractionPrompt = `You are a code review extraction assistant. Below is a code review. Your job is to extract concrete correctness bugs the reviewer identified.
 
-RULES — EXTRACT only issues that meet ALL of these criteria:
-1. The reviewer explicitly identifies a CONCRETE functional problem (crash, wrong value, data loss, security hole, broken caller, race condition, incorrect logic, unreachable code)
-2. The issue has a SPECIFIC code reference (file + function/variable/line)
-3. The reviewer explains WHY it's wrong (not just "consider" or "could be improved")
+EXTRACT issues where the reviewer identifies code that IS BROKEN NOW — something that will crash, produce wrong output, fail on a supported platform, break callers, or cause incorrect test results.
+
+Each extracted bug MUST have:
+- A concrete failing scenario (what goes wrong)
+- A specific code location (file + function/variable)
+- A bug_class from this list:
+  * "crash" — null/nil dereference, TypeError, NoMethodError, missing method, unhandled exception on a reachable path
+  * "wrong_value" — wrong operator (&&/||), inverted condition, wrong variable used, wrong return value, stale/shared mutable default
+  * "broken_caller" — API/interface changed but callers not updated, wrong argument passed
+  * "broken_test" — test asserts wrong value, uses wrong HTTP method, test name doesn't match behavior, typo in test name, test validates wrong thing
+  * "platform_breakage" — code uses platform-specific syntax (e.g., macOS sed) that fails on other supported platforms
+  * "dead_code" — unreachable branches, always-false conditions, function always returns same value regardless of input
+  * "race_condition" — concurrent access with a concrete trigger (not theoretical)
+  * "data_loss" — fire-and-forget async, orphaned records, operations silently skipped
+  * "security" — SSRF, XSS, SQL injection, weak validation with a concrete bypass
+  * "wrong_message" — error/log message that actively misleads (says "login" in disable endpoint, says "array" but tests dict)
+
+IMPORTANT — these ARE real bugs, DO extract them:
+- Typos in test/method names that cause lookup failures or misleading test results (e.g., "inalid" instead of "invalid")
+- Case-sensitive comparisons where case-insensitive is required (e.g., hex backup codes, email blacklists)
+- Platform-specific syntax that breaks on supported platforms (e.g., macOS-only sed -i '' syntax)
+- Wrong error messages on executed code paths (not just suboptimal wording)
+- Nil/null dereference even if it seems "unlikely" — if the code path is reachable, it's a crash
+- Interface/contract violations where implementations don't match updated signatures
 
 DO NOT EXTRACT:
-- Suggestions phrased as "consider...", "might want to...", "could be improved by..." UNLESS the reviewer also states the current code is BROKEN
-- Missing features: "no rate limiting", "no validation", "no upper bound" — these are hardening suggestions, not bugs
-- Theoretical edge cases the reviewer hedges about: "if X were to happen...", "in theory..."
-- Style/naming issues with no functional impact (e.g., "misleading name" without a concrete lookup failure)
-- Redundant/duplicate reports of the same underlying bug in different files — pick the ONE best instance
-- Architectural opinions: "should use X pattern instead of Y"
-- Missing error handling for unlikely scenarios
-
-Classify each bug:
-- "critical": crashes (NPE, TypeError, NoMethodError), data corruption, security vulnerabilities with concrete exploit path, complete feature breakage
-- "high": logic errors producing wrong values, race conditions with concrete trigger scenario, silent failures where operations are skipped, broken callers due to API changes
-- "medium": test correctness bugs (wrong assertion, mismatched description), dead code (unreachable branches, always-false conditions), wrong error messages that mislead debugging
-
-For each issue, provide a short canonical_key (e.g., "null-deref-mainHostDestinationCalendar", "wrong-operator-and-vs-or").
+- Hardening suggestions: "add rate limiting", "add validation", "add bounds check", "add error handling for edge case"
+- Missing features: "no feature X", "should add Y"
+- Theoretical concerns with hedging: "if someone were to...", "could potentially..."
+- Pure style/naming preferences with ZERO functional impact
+- Performance concerns: "N+1 queries", "unnecessary allocation"
+- Architectural opinions: "should use pattern X instead of Y"
+- Thread-safety concerns WITHOUT a concrete interleaving scenario
+- Duplicates: if same root cause appears in multiple files, extract only the ONE best instance
+- UI/UX state management issues
 
 Respond with ONLY this JSON, no other text:
-{"issues": [{"issue": "description naming exact function/variable and the concrete bug", "evidence": "exact code snippet or quote from the review", "severity": "critical|high|medium", "file": "path/to/file", "canonical_key": "short-unique-bug-id"}]}
+{"issues": [{"issue": "description", "evidence": "code snippet", "severity": "critical|high|medium", "file": "path", "canonical_key": "short-id", "bug_class": "crash|wrong_value|broken_caller|broken_test|platform_breakage|dead_code|race_condition|data_loss|security|wrong_message", "failing_scenario": "what goes wrong in one sentence"}]}
 
 Return {"issues": []} if no concrete issues were found.
 
@@ -494,7 +509,7 @@ ${extractSource}
   process.stderr.write(`[review-v2] Running extraction with ${provider}/${modelId} (separate call)...\n`);
 
   const extractCtx: Context = {
-    systemPrompt: "You extract structured bug reports from code review text. Extract ONLY concrete correctness bugs: crashes, wrong behavior, broken callers, wrong values, logic errors, race conditions with concrete triggers, dead/unreachable code, test correctness bugs. DO NOT extract: style preferences, hardening suggestions (missing validation, missing rate limiting), theoretical edge cases, architectural opinions, or duplicate instances of the same bug. Be selective — quality over quantity.",
+    systemPrompt: "You extract structured bug reports from code review text. Extract bugs where code IS BROKEN: crashes, wrong values, broken callers, broken tests, platform breakage, dead code, race conditions, data loss, security holes, wrong messages. Include typos that cause test/method lookup failures. Include case-sensitivity bugs. Include platform-specific syntax issues. DO NOT extract: hardening suggestions, missing features, theoretical concerns, style preferences, performance issues, architectural opinions, or duplicates.",
     messages: [
       {
         role: "user" as const,
@@ -520,7 +535,13 @@ ${extractSource}
   process.stderr.write(`[review-v2] === EXTRACTION RESPONSE ===\n${extractionText}\n=== END EXTRACTION RESPONSE ===\n`);
 
   // Parse extracted candidates
-  let candidates: (RawIssue & { canonical_key?: string })[] = [];
+  interface ExtractedIssue extends RawIssue {
+    canonical_key?: string;
+    bug_class?: string;
+    failing_scenario?: string;
+    score?: number;
+  }
+  let candidates: ExtractedIssue[] = [];
   try {
     const json = extractJson(extractionText);
     const parsed = JSON.parse(json);
@@ -532,7 +553,7 @@ ${extractSource}
 
   // ── Deduplicate by canonical_key ──
   const seen = new Set<string>();
-  const deduped: typeof candidates = [];
+  const deduped: ExtractedIssue[] = [];
   for (const c of candidates) {
     const key = c.canonical_key?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? "";
     if (key && seen.has(key)) {
@@ -544,45 +565,40 @@ ${extractSource}
   }
   process.stderr.write(`[review-v2] After dedup: ${deduped.length} candidates (removed ${candidates.length - deduped.length})\n`);
 
-  // ── Lenient validation filter (v8): drop only obvious non-bugs ──
+  // ── Scored validation (v9): score each candidate, only drop clear non-bugs ──
   const validateModel = getModel(provider as any, modelId);
-  const validated: typeof deduped = [];
+  let scored: ExtractedIssue[] = [];
 
   if (deduped.length > 0) {
     const issueList = deduped.map((c, i) =>
-      `[${i}] [${c.severity}] ${c.issue} | file: ${c.file} | evidence: ${(c.evidence || "").slice(0, 200)}`
+      `[${i}] [${c.severity}] [${c.bug_class || "unknown"}] ${c.issue} | file: ${c.file} | failing: ${c.failing_scenario || "not specified"} | evidence: ${(c.evidence || "").slice(0, 200)}`
     ).join("\n");
 
-    const validatePrompt = `You are a code review quality filter. Below are candidate bugs extracted from a code review. For each candidate, decide: KEEP or DROP.
+    const validatePrompt = `You are a code review quality scorer. Below are candidate bugs extracted from a code review. For each candidate, assign a score 0-100 and decide KEEP or DROP.
 
-KEEP if the candidate describes a CONCRETE functional problem:
-- Crashes, null dereferences, type errors at runtime
-- Logic errors: wrong operator, inverted condition, wrong variable, wrong return value
-- Broken callers: API changed but callers not updated
-- Race conditions with a concrete trigger scenario
-- Silent failures: operations skipped due to fire-and-forget, wrong branch taken
-- Security vulnerabilities with a concrete exploit path
-- Dead code: unreachable branches, always-true/false conditions
-- Test bugs: wrong assertion value, wrong HTTP method, mismatched test name
-- Wrong error messages that actively mislead (e.g., says "login" in a "disable" endpoint)
-- Typos that cause functional failures (e.g., misspelled method name causing lookup miss)
+SCORING GUIDE:
+- 90-100: Definite crash, null deref, wrong return value, broken API caller, concrete security exploit — high confidence the code fails
+- 70-89: Logic error, race condition with concrete trigger, wrong operator, case-sensitivity bug, platform-specific breakage, test using wrong HTTP method
+- 50-69: Test name typo/mismatch, wrong error message, dead/unreachable code, always-false condition
+- 30-49: Suspicious but reviewer hedges, missing null check on an unlikely path
+- 0-29: Pure suggestion, hardening, style preference, theoretical concern, missing feature
 
-DROP if the candidate is:
-- A hardening suggestion: "add rate limiting", "add validation", "add upper bound", "add error handling"
-- A theoretical concern: "if someone were to...", "in a future scenario..."
-- A style/naming preference with no runtime impact
-- An architectural opinion: "should use X pattern"
-- A duplicate of another candidate (same root cause, different file)
-- Missing feature rather than broken feature
+DROP ONLY if score < 20:
+- Pure hardening suggestions ("add rate limiting", "add validation")
+- Missing features that aren't broken code
+- Architectural preferences
+- Clear duplicate of another candidate (same root cause)
 
-Respond with ONLY a JSON array of indices to KEEP, e.g.: [0, 1, 3, 5]
-If all should be kept: return all indices. If none: return [].
+KEEP everything else — even "medium" issues like test name typos, wrong error messages, case-sensitivity bugs, and platform-specific syntax. These are real bugs.
+
+Respond with ONLY this JSON:
+[{"index": 0, "keep": true, "score": 85}, {"index": 1, "keep": false, "score": 10}, ...]
 
 CANDIDATES:
 ${issueList}`;
 
     const validateCtx: Context = {
-      systemPrompt: "You filter code review candidates. Keep concrete bugs. Drop hardening suggestions, style nits, theoretical concerns, and duplicates. When uncertain, KEEP.",
+      systemPrompt: "You score code review candidates on a 0-100 scale for bug severity/concreteness. Only DROP items scoring below 20 (pure suggestions, hardening, missing features, duplicates). KEEP everything else including: test typos, case-sensitivity bugs, platform-specific breakage, wrong messages, nil dereferences. When uncertain, KEEP with a moderate score.",
       messages: [{ role: "user" as const, content: validatePrompt, timestamp: Date.now() }],
     };
 
@@ -590,55 +606,64 @@ ${issueList}`;
     try {
       const validateResult = await completeSimple(validateModel, validateCtx, {
         temperature: 0,
-        maxTokens: 1024,
+        maxTokens: 2048,
       });
       for (const part of validateResult.content) {
         if (part.type === "text") validateText += part.text;
       }
     } catch (e) {
       process.stderr.write(`[review-v2] Validation call failed: ${e}\n`);
-      // On failure, keep all candidates
-      validated.push(...deduped);
+      // On failure, keep all candidates with default score
+      scored = deduped.map(c => ({ ...c, score: 50 }));
     }
 
-    if (validated.length === 0) {
-      // Parse the keep indices
+    if (scored.length === 0) {
+      // Parse the scored results
       try {
-        const match = validateText.match(/\[[\d\s,]*\]/);
+        const match = validateText.match(/\[[\s\S]*\]/);
         if (match) {
-          const keepIndices: number[] = JSON.parse(match[0]);
-          for (const idx of keepIndices) {
-            if (idx >= 0 && idx < deduped.length) {
-              validated.push(deduped[idx]);
+          const results: { index: number; keep: boolean; score: number }[] = JSON.parse(match[0]);
+          for (const r of results) {
+            if (r.index >= 0 && r.index < deduped.length) {
+              if (r.keep) {
+                scored.push({ ...deduped[r.index], score: r.score ?? 50 });
+              } else {
+                process.stderr.write(`[review-v2] Validation dropped [${r.index}] (score=${r.score}): ${deduped[r.index].canonical_key} — ${deduped[r.index].issue.slice(0, 80)}\n`);
+              }
             }
           }
-          process.stderr.write(`[review-v2] Validation: kept ${validated.length}/${deduped.length} (dropped ${deduped.length - validated.length})\n`);
-          // Log what was dropped
+          // If any candidates weren't mentioned in results, keep them with default score
+          const mentionedIndices = new Set(results.map(r => r.index));
           for (let i = 0; i < deduped.length; i++) {
-            if (!keepIndices.includes(i)) {
-              process.stderr.write(`[review-v2] Validation dropped [${i}]: ${deduped[i].canonical_key} — ${deduped[i].issue.slice(0, 80)}\n`);
+            if (!mentionedIndices.has(i)) {
+              process.stderr.write(`[review-v2] Validation: candidate [${i}] not mentioned, keeping with default score\n`);
+              scored.push({ ...deduped[i], score: 50 });
             }
           }
+          process.stderr.write(`[review-v2] Validation: kept ${scored.length}/${deduped.length} (dropped ${deduped.length - scored.length})\n`);
         } else {
-          process.stderr.write(`[review-v2] Validation parse failed, keeping all\n`);
-          validated.push(...deduped);
+          process.stderr.write(`[review-v2] Validation parse failed, keeping all with default score\n`);
+          scored = deduped.map(c => ({ ...c, score: 50 }));
         }
       } catch {
-        process.stderr.write(`[review-v2] Validation JSON parse failed, keeping all\n`);
-        validated.push(...deduped);
+        process.stderr.write(`[review-v2] Validation JSON parse failed, keeping all with default score\n`);
+        scored = deduped.map(c => ({ ...c, score: 50 }));
       }
     }
   }
 
-  process.stderr.write(`[review-v2] After validation: ${validated.length} candidates\n`);
+  process.stderr.write(`[review-v2] After validation: ${scored.length} candidates\n`);
 
-  // Sort by severity, cap at 6
-  let issues = validated;
+  // Sort by score (desc), then severity as tiebreaker. Cap at 7.
+  let issues = scored;
   const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2 };
-  issues.sort((a, b) => (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3));
-  if (issues.length > 6) {
-    issues = issues.slice(0, 6);
-    process.stderr.write(`[review-v2] Capped to 6 issues\n`);
+  issues.sort((a, b) =>
+    (b.score ?? 50) - (a.score ?? 50) ||
+    (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3)
+  );
+  if (issues.length > 7) {
+    process.stderr.write(`[review-v2] Capped from ${issues.length} to 7 issues\n`);
+    issues = issues.slice(0, 7);
   }
 
   const elapsed = Date.now() - t0;

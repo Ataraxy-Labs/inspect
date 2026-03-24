@@ -217,32 +217,60 @@ async def run_one_pr(pr, benchmark_data, model, timestamp, semaphore):
         }
 
         t0 = time.time()
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "node", "--import", "tsx/esm", "src/review-diff-v2.ts",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=AGENT_DIR,
-                env={**os.environ},
-            )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(input=json.dumps(agent_input).encode()),
-                timeout=900,
-            )
-            stdout_text = stdout_bytes.decode("utf-8", errors="replace")
-            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-        except asyncio.TimeoutError:
-            result["status"] = "timeout"
-            result["elapsed_s"] = round(time.time() - t0, 1)
-            print(f"  [{pr_label}] TIMEOUT ({result['elapsed_s']}s)", file=sys.stderr)
-            return result
-        except Exception as e:
-            result["status"] = "error"
-            result["elapsed_s"] = round(time.time() - t0, 1)
-            result["error"] = str(e)
-            print(f"  [{pr_label}] ERROR: {e}", file=sys.stderr)
-            return result
+        max_retries = 2
+        for attempt in range(1, max_retries + 1):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "node", "--import", "tsx/esm", "src/review-diff-v2.ts",
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=AGENT_DIR,
+                    env={**os.environ},
+                )
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(input=json.dumps(agent_input).encode()),
+                    timeout=900,
+                )
+                stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+                stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+
+                # Retry if raw response was empty (generation failure)
+                raw_marker = "=== RAW RESPONSE ==="
+                end_marker = "=== END RAW RESPONSE ==="
+                raw_start = stderr_text.find(raw_marker)
+                raw_end = stderr_text.find(end_marker)
+                if raw_start != -1 and raw_end != -1:
+                    raw_content = stderr_text[raw_start + len(raw_marker):raw_end].strip()
+                    if len(raw_content) < 50 and attempt < max_retries:
+                        print(f"  [{pr_label}] Empty raw response (attempt {attempt}), retrying...",
+                              file=sys.stderr, flush=True)
+                        continue
+
+                # Retry if no tool calls and very fast (likely crash)
+                tool_count = stderr_text.count("[tool] #")
+                elapsed_so_far = time.time() - t0
+                if tool_count == 0 and elapsed_so_far < 30 and attempt < max_retries:
+                    print(f"  [{pr_label}] Zero tool calls in {elapsed_so_far:.0f}s (attempt {attempt}), retrying...",
+                          file=sys.stderr, flush=True)
+                    continue
+
+                break  # Success or final attempt
+            except asyncio.TimeoutError:
+                if attempt < max_retries:
+                    print(f"  [{pr_label}] TIMEOUT (attempt {attempt}), retrying...",
+                          file=sys.stderr, flush=True)
+                    continue
+                result["status"] = "timeout"
+                result["elapsed_s"] = round(time.time() - t0, 1)
+                print(f"  [{pr_label}] TIMEOUT ({result['elapsed_s']}s)", file=sys.stderr)
+                return result
+            except Exception as e:
+                result["status"] = "error"
+                result["elapsed_s"] = round(time.time() - t0, 1)
+                result["error"] = str(e)
+                print(f"  [{pr_label}] ERROR: {e}", file=sys.stderr)
+                return result
 
         elapsed = time.time() - t0
         result["elapsed_s"] = round(elapsed, 1)
@@ -256,7 +284,7 @@ async def run_one_pr(pr, benchmark_data, model, timestamp, semaphore):
             f.write(f"PR: {pr_label}\n")
             f.write(f"Title: {pr.get('pr_title', '')}\n")
             f.write(f"Model: {model}\n")
-            f.write(f"Approach: v4 (anti-dismissal + diff-reorder + tighter-extraction)\n")
+            f.write(f"Approach: v7 (v3-breadth + inclusive-extraction + dedup + cap8, no structured-block, no validation-filter)\n")
             f.write(f"Diff: {len(diff_text)} chars | Findings: {len(findings)} | Entities: {len(entity_reviews)}\n")
             f.write(f"Elapsed: {elapsed:.1f}s | Tool calls: {tool_calls}\n")
             f.write(f"{'='*80}\n\n")
@@ -422,12 +450,12 @@ async def main():
             print(f"    (none)", file=sys.stderr)
 
     # Save summary
-    summary_path = os.path.join(LOG_DIR, timestamp, "_summary_v4.json")
+    summary_path = os.path.join(LOG_DIR, timestamp, "_summary_v7.json")
     os.makedirs(os.path.dirname(summary_path), exist_ok=True)
     summary = {
         "timestamp": timestamp,
         "model": args.model,
-        "approach": "v4-anti-dismissal-diff-reorder-tighter-extraction",
+        "approach": "v7-inclusive-extraction-dedup-cap8-no-validation-filter",
         "mode": mode,
         "concurrency": args.concurrency,
         "total_prs": len(results),
