@@ -63,4 +63,5 @@ export interface Verdict {
 /** Output written to stdout as JSON. */
 export interface ValidateOutput {
   verdicts: Verdict[];
+  raw_review?: string;
 }

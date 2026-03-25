@@ -41,7 +41,7 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-// ── System prompt (v9 — v3 breadth + anti-dismissal + bug-class extraction + scored validation) ──
+// ── System prompt (v10) ──
 function buildSystemPrompt(repoDir: string): string {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short", month: "short", day: "numeric", year: "numeric",
@@ -50,19 +50,21 @@ function buildSystemPrompt(repoDir: string): string {
 
 Your task is to perform a thorough code review of the provided diff description. The diff description might be a git or bash command that generates the diff or a description of the diff which can then be used to generate the git or bash command to generate the full diff.
 
+# Review process
+
 After reading the diff, do the following:
 1. Generate a high-level summary of the changes in the diff.
-2. Go file-by-file and review each changed hunk.
-3. Comment on what changed in that hunk (including the line range) and how it relates to other changed hunks and code, reading any other relevant files. Also call out bugs, hackiness, unnecessary code, naming inconsistencies, or too much shared mutable state.
-4. For any changed or removed public APIs, use Grep to search for callers repo-wide. Check if callers were updated to match the new signature/behavior. Flag broken callers.
-5. Use Read tool to inspect entity code not visible in a truncated diff. Review ALL high-risk entities from the triage section, not just the first few files.
-6. Review test code for correctness bugs too: wrong assertions, wrong cleanup values, hardcoded strings that should be parameterized, mismatched test descriptions, and typos.
+2. If a <public_api_checklist> is present, read the listed callers for each changed API and check if they handle the new signature/behavior. List broken callers.
+3. Go file-by-file and review each changed hunk (including the line range), reading any other relevant files. Call out bugs, hackiness, unnecessary code, naming inconsistencies, or too much shared mutable state.
+4. For CROSS-ENTITY INTERACTIONS in the triage, use the inspect tool to check both sides and verify the contract matches (parameters, return types, keys, owners).
+5. Use Read tool to inspect entity code not visible in a truncated diff. Review ALL high-risk entities from the triage, not just the first few files.
+6. Review test code for correctness bugs: wrong assertions, wrong cleanup values, mismatched test descriptions, and typos.
 
-Do NOT dismiss bugs because the pattern is "pre-existing", "consistent with existing code", or "also present in other files." A bug is a bug regardless of whether old code has the same mistake. If this PR introduces or copies a buggy pattern, report it.
+# Bug reporting
 
-Verify guards and type checks rather than assuming they're correct. For example, isinstance() may not match the actual runtime type if the object was created by a factory or subprocess.
-
-When you identify a potential issue, state it clearly rather than dismissing it. Say "potential bug" if uncertain.
+- Do NOT dismiss bugs because the pattern is "pre-existing" or "consistent with existing code." A bug is a bug.
+- Verify guards and type checks rather than assuming they're correct. For example, isinstance() may not match the actual runtime type if the object was created by a factory or subprocess.
+- When you identify a potential issue, state it clearly. Say "potential bug" if uncertain.
 
 Current working directory (cwd): ${repoDir}
 Today's date: ${today}`;
@@ -114,13 +116,29 @@ function buildEntityTriage(entities: EntityReview[]): string {
   lines.push(`--- CHANGED ENTITIES (${meaningful.length} total, smart-triaged) ---`);
   lines.push("");
 
+  // Helper to format dependent/dependency names (cap at 5 per entity to avoid bloat)
+  function formatDependents(e: EntityReview): string {
+    const depNames = e.dependent_names ?? [];
+    if (depNames.length === 0) return "";
+    const shown = depNames.slice(0, 5).map(([name, file]) => `${name} (${file})`).join(", ");
+    const more = depNames.length > 5 ? ` +${depNames.length - 5} more` : "";
+    return `\n      dependents: ${shown}${more}`;
+  }
+  function formatDependencies(e: EntityReview): string {
+    const depNames = e.dependency_names ?? [];
+    if (depNames.length === 0) return "";
+    const shown = depNames.slice(0, 5).map(([name, file]) => `${name} (${file})`).join(", ");
+    const more = depNames.length > 5 ? ` +${depNames.length - 5} more` : "";
+    return `\n      depends on: ${shown}${more}`;
+  }
+
   // BEHAVIORAL — these are where bugs hide (medium similarity, value changes)
   if (behavioral.length > 0) {
     lines.push(`BEHAVIORAL (verify — ${behavioral.length} changes):`);
     for (const { entity: e } of behavioral.sort((a, b) => b.entity.risk_score - a.entity.risk_score)) {
       const pub = e.is_public_api ? " [PUBLIC]" : "";
       const deps = e.dependent_count > 0 ? ` | ${e.dependent_count} dependents` : "";
-      lines.push(`  ∆ ${e.entity_name} (${e.entity_type}) in ${e.file_path} risk=${e.risk_score.toFixed(2)}${deps}${pub}`);
+      lines.push(`  ∆ ${e.entity_name} (${e.entity_type}) in ${e.file_path} risk=${e.risk_score.toFixed(2)}${deps}${pub}${formatDependents(e)}${formatDependencies(e)}`);
     }
     lines.push("");
   }
@@ -131,7 +149,7 @@ function buildEntityTriage(entities: EntityReview[]): string {
     for (const { entity: e } of newLogic.sort((a, b) => b.entity.risk_score - a.entity.risk_score)) {
       const pub = e.is_public_api ? " [PUBLIC]" : "";
       const deps = e.dependent_count > 0 ? ` | ${e.dependent_count} dependents` : "";
-      lines.push(`  ⊕ ${e.entity_name} (${e.entity_type}) in ${e.file_path}${deps}${pub}`);
+      lines.push(`  ⊕ ${e.entity_name} (${e.entity_type}) in ${e.file_path}${deps}${pub}${formatDependents(e)}${formatDependencies(e)}`);
     }
     lines.push("");
   }
@@ -150,63 +168,142 @@ function buildEntityTriage(entities: EntityReview[]): string {
     lines.push("");
   }
 
-  lines.push("Focus on BEHAVIORAL and NEW LOGIC entities. If the diff is truncated, use Read/Grep tools to inspect entities not visible in the patch.");
-  lines.push("After reviewing, search repo-wide (Grep) for callers of any changed/removed public APIs to check if they were updated.");
+  // Cross-entity interactions: flag when a new/changed entity depends on another changed entity
+  // Pre-inject code snippets of both sides so agent sees contract without needing tool calls
+  const changedByName = new Map<string, EntityReview>();
+  for (const e of meaningful) {
+    changedByName.set(e.entity_name.toLowerCase(), e);
+  }
+  interface CrossPair { source: EntityReview; dep: EntityReview; depFile: string }
+  const crossPairs: CrossPair[] = [];
+  const seenPairKeys = new Set<string>();
+  for (const { entity: e, category } of categorized) {
+    if (category === "MECHANICAL") continue;
+    if (e.risk_score < 0.05) continue;
+    if (e.file_path.includes("/test/") || e.file_path.includes("/tests/") || e.file_path.includes("Test.")) continue;
+    for (const [depName, depFile] of (e.dependency_names ?? [])) {
+      const depKey = depName.toLowerCase();
+      const depEntity = changedByName.get(depKey);
+      if (depEntity && depName !== e.entity_name && depEntity.file_path !== e.file_path) {
+        if (!depFile.includes("/test/") && !depFile.includes("/tests/")) {
+          // Skip generic short names (resource, hash, config, etc.) — too many false matches
+          if (depName.length <= 8) continue;
+          // Skip deleted dependency targets — no contract to verify
+          const depCt = depEntity.change_type;
+          if (depCt === "Deleted" || depCt === "deleted") continue;
+          const pairKey = `${e.entity_name}::${depName}`;
+          if (!seenPairKeys.has(pairKey)) {
+            seenPairKeys.add(pairKey);
+            crossPairs.push({ source: e, dep: depEntity, depFile });
+          }
+        }
+      }
+    }
+  }
+
+  if (crossPairs.length > 0) {
+    // Sort by combined risk, take top 15
+    const top = crossPairs
+      .sort((a, b) => (b.source.risk_score + b.dep.risk_score) - (a.source.risk_score + a.dep.risk_score))
+      .slice(0, 15);
+    lines.push("CROSS-ENTITY INTERACTIONS (both sides changed — verify contracts match):");
+    for (const { source, dep } of top) {
+      lines.push(`  ⚠ ${source.entity_name} (${source.file_path.split("/").pop()}) → ${dep.entity_name} (${dep.file_path.split("/").pop()})`);
+      // Include code snippet of source (the caller)
+      const srcCode = (source.after_content ?? source.before_content ?? "").trim();
+      if (srcCode) {
+        const snippet = srcCode.length > 200 ? srcCode.slice(0, 200) + "..." : srcCode;
+        lines.push(`    source: ${snippet.replace(/\n/g, "\n    ")}`);
+      }
+      // Include code snippet of dependency (the callee)
+      const depCode = (dep.after_content ?? dep.before_content ?? "").trim();
+      if (depCode) {
+        const snippet = depCode.length > 200 ? depCode.slice(0, 200) + "..." : depCode;
+        lines.push(`    dependency: ${snippet.replace(/\n/g, "\n    ")}`);
+      }
+      lines.push("");
+    }
+  }
+
+  lines.push("Use the inspect tool to check dependencies and callers of new methods.");
   lines.push("--- END CHANGED ENTITIES ---");
   return lines.join("\n");
 }
 
-// ── Reorder diff: put high-risk files first for large diffs ──
-function reorderDiff(diff: string, entities: EntityReview[]): string {
-  if (!entities.length || diff.length < 80_000) return diff;
-
-  // Get priority files from BEHAVIORAL/NEW_LOGIC high-risk entities
-  const meaningful = entities.filter(e => e.entity_type !== "chunk");
-  const priorityFiles = new Set<string>();
-  for (const e of meaningful) {
-    const cat = categorizeEntity(e);
-    if (cat === "BEHAVIORAL" || (cat === "NEW_LOGIC" && e.risk_score >= 0.4)) {
-      priorityFiles.add(e.file_path);
-    }
-  }
-  if (priorityFiles.size === 0) return diff;
-
-  // Split diff into per-file hunks
+// ── Split diff into per-file hunks ──
+function splitDiffByFile(diff: string): { file: string; content: string }[] {
   const filePattern = /^diff --git a\/.+$/gm;
-  const splits: { file: string; content: string; priority: boolean }[] = [];
-  let match: RegExpExecArray | null;
   const indices: number[] = [];
+  let match: RegExpExecArray | null;
   while ((match = filePattern.exec(diff)) !== null) {
     indices.push(match.index);
+  }
+
+  const splits: { file: string; content: string }[] = [];
+
+  // Preserve any content before first diff header
+  if (indices.length > 0 && indices[0] > 0) {
+    const prefix = diff.slice(0, indices[0]);
+    if (prefix.trim()) {
+      splits.push({ file: "", content: prefix });
+    }
   }
 
   for (let i = 0; i < indices.length; i++) {
     const start = indices[i];
     const end = i + 1 < indices.length ? indices[i + 1] : diff.length;
     const chunk = diff.slice(start, end);
-    // Extract filename from "diff --git a/path b/path"
     const fileMatch = chunk.match(/^diff --git a\/(.+?) b\//);
     const file = fileMatch ? fileMatch[1] : "";
-    const isPriority = [...priorityFiles].some(pf => file.endsWith(pf) || pf.endsWith(file) || file.includes(pf) || pf.includes(file));
-    splits.push({ file, content: chunk, priority: isPriority });
+    splits.push({ file, content: chunk });
   }
 
-  // If there's content before the first diff header (unlikely), preserve it
-  if (indices.length > 0 && indices[0] > 0) {
-    const prefix = diff.slice(0, indices[0]);
-    if (prefix.trim()) {
-      splits.unshift({ file: "", content: prefix, priority: false });
+  return splits;
+}
+
+function fileMatchesSet(file: string, fileSet: Set<string>): boolean {
+  return [...fileSet].some(pf => file.endsWith(pf) || pf.endsWith(file) || file.includes(pf) || pf.includes(file));
+}
+
+// ── Process diff: reorder priority files first, strip MECHANICAL files for large diffs ──
+function processDiff(diff: string, entities: EntityReview[]): { processedDiff: string; strippedFiles: string[] } {
+  if (!entities.length || diff.length < 80_000) return { processedDiff: diff, strippedFiles: [] };
+
+  const meaningful = entities.filter(e => e.entity_type !== "chunk");
+
+  // Build file sets for priority and mechanical
+  const priorityFiles = new Set<string>();
+  const mechanicalFiles = new Set<string>();
+  for (const e of meaningful) {
+    const cat = categorizeEntity(e);
+    if (cat === "BEHAVIORAL" || (cat === "NEW_LOGIC" && e.risk_score >= 0.4)) {
+      priorityFiles.add(e.file_path);
+    } else if (cat === "MECHANICAL") {
+      mechanicalFiles.add(e.file_path);
     }
   }
 
-  // Sort: priority files first, then original order
-  const prioritySplits = splits.filter(s => s.priority);
-  const otherSplits = splits.filter(s => !s.priority);
+  const splits = splitDiffByFile(diff);
 
-  if (prioritySplits.length === 0) return diff;
+  // Classify each split
+  const priority: typeof splits = [];
+  const normal: typeof splits = [];
+  const stripped: string[] = [];
 
-  const reordered = [...prioritySplits, ...otherSplits].map(s => s.content).join("");
-  return reordered;
+  for (const s of splits) {
+    if (!s.file) {
+      normal.push(s);
+    } else if (fileMatchesSet(s.file, priorityFiles)) {
+      priority.push(s);
+    } else if (fileMatchesSet(s.file, mechanicalFiles) && !fileMatchesSet(s.file, priorityFiles)) {
+      stripped.push(s.file);
+    } else {
+      normal.push(s);
+    }
+  }
+
+  const processedDiff = [...priority, ...normal].map(s => s.content).join("");
+  return { processedDiff, strippedFiles: stripped };
 }
 
 // ── Build user message: entities + detector hints + diff ──
@@ -219,15 +316,20 @@ function buildUserMessage(
 ): string {
   const parts: string[] = [];
 
-  // Reorder diff to prioritize high-risk files for large diffs
-  const reorderedDiff = reorderDiff(diff, entities);
+  // Process diff: reorder priority files first, strip MECHANICAL files for large diffs
+  const { processedDiff, strippedFiles } = processDiff(diff, entities);
 
   // Longform data FIRST (Anthropic: "put longform data at the top, queries at the end")
   // Cap diff at 120k chars
-  if (reorderedDiff.length > 120_000) {
-    parts.push(`<diff>\n${reorderedDiff.slice(0, 120_000)}\n... (diff truncated — use Read tool to inspect remaining files listed in changed_entities above)\n</diff>`);
+  if (processedDiff.length > 120_000) {
+    parts.push(`<diff>\n${processedDiff.slice(0, 120_000)}\n... (diff truncated — use Read tool to inspect remaining files listed in changed_entities above)\n</diff>`);
   } else {
-    parts.push(`<diff>\n${reorderedDiff}\n</diff>`);
+    parts.push(`<diff>\n${processedDiff}\n</diff>`);
+  }
+
+  // Note stripped mechanical files
+  if (strippedFiles.length > 0) {
+    parts.push(`\n<mechanical_files_omitted note="These files had only mechanical changes (renames, reformats, Jaccard >0.8) and were stripped from the diff to save tokens. Use Read tool if needed.">\n${strippedFiles.join("\n")}\n</mechanical_files_omitted>`);
   }
 
   // Entity triage — structured context about what changed
@@ -235,6 +337,27 @@ function buildUserMessage(
   if (triage) {
     parts.push("");
     parts.push(`<changed_entities>\n${triage}\n</changed_entities>`);
+  }
+
+  // Public API checklist for mandatory impact analysis (STEP 0)
+  const publicApis = (entities ?? []).filter(e =>
+    e.entity_type !== "chunk" && e.is_public_api &&
+    (e.change_type === "Modified" || e.change_type === "modified" ||
+     e.change_type === "Deleted" || e.change_type === "deleted")
+  );
+  if (publicApis.length > 0) {
+    const apiLines = publicApis
+      .sort((a, b) => b.risk_score - a.risk_score)
+      .slice(0, 15)
+      .map(e => {
+        const depNames = e.dependent_names ?? [];
+        const depList = depNames.slice(0, 5).map(([name, file]) => `${name} in ${file}`);
+        const more = depNames.length > 5 ? `, +${depNames.length - 5} more` : "";
+        const depStr = depList.length > 0 ? `\n      callers: ${depList.join(", ")}${more}` : "";
+        return `  - ${e.change_type.toUpperCase()}: ${e.entity_name} (${e.entity_type}) in ${e.file_path} [${e.dependent_count} dependents]${depStr}`;
+      });
+    parts.push("");
+    parts.push(`<public_api_checklist note="STEP 0: For EACH entry below, read the listed callers and verify they handle the new signature/behavior. Use ast_grep for structural matching. List broken callers explicitly.">\n${apiLines.join("\n")}\n</public_api_checklist>`);
   }
 
   // Detector findings as noisy hints
@@ -280,14 +403,15 @@ After reading those, review the full diff systematically. Budget attention acros
 // ── Extract JSON from text ──
 function extractJson(text: string): string {
   const trimmed = text.trim();
-  const fenceMatch = trimmed.match(/```json\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    const inner = fenceMatch[1].trim();
+  // Find ALL fenced json blocks and prefer the last one (models often self-correct)
+  const allFences = [...trimmed.matchAll(/```json\s*([\s\S]*?)```/g)];
+  if (allFences.length > 0) {
+    const inner = allFences[allFences.length - 1][1].trim();
     if (inner.startsWith("{") || inner.startsWith("[")) return inner;
   }
-  const anyFence = trimmed.match(/```\s*([\s\S]*?)```/);
-  if (anyFence) {
-    const inner = anyFence[1].trim();
+  const anyFences = [...trimmed.matchAll(/```\s*([\s\S]*?)```/g)];
+  if (anyFences.length > 0) {
+    const inner = anyFences[anyFences.length - 1][1].trim();
     if (inner.startsWith("{") || inner.startsWith("[")) return inner;
   }
   const issuesIdx = trimmed.indexOf('{"issues"');
@@ -372,6 +496,127 @@ function createWebTools(): AgentTool<any>[] {
   return [webSearch, readWebPage];
 }
 
+// ── ast-grep tool: structural code search ──
+function createAstGrepTool(repoDir: string): AgentTool<any> {
+  return {
+    name: "ast_grep",
+    description: "Structural code search using AST patterns. Use to find all call sites of a function, interface implementations, missing props, wrong signatures, etc. Pattern uses '$' for single nodes (e.g., '$FUNC($ARG)') and '$$$' for variadic (e.g., 'useCallback($$$)'). Examples: 'isinstance($X, Process)' finds isinstance checks, '$OBJ.get_multi($$$)' finds get_multi calls.",
+    parameters: Type.Object({
+      pattern: Type.String({ description: "AST pattern to search for (e.g., '$FUNC($$$)', 'isinstance($X, $Y)')" }),
+      lang: Type.Optional(Type.String({ description: "Language filter: python, javascript, typescript, go, java, rust, ruby, etc." })),
+    }),
+    async execute(_id, params) {
+      const { execSync } = await import("child_process");
+      try {
+        const langFlag = params.lang ? ` --lang ${params.lang}` : "";
+        const cmd = `ast-grep run --pattern '${params.pattern.replace(/'/g, "'\\''")}'${langFlag} --json 2>/dev/null`;
+        const result = execSync(cmd, {
+          cwd: repoDir,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+          encoding: "utf-8",
+        });
+        const matches = JSON.parse(result || "[]");
+        if (!Array.isArray(matches) || matches.length === 0) {
+          return { content: [{ type: "text", text: "No matches found." }], details: {} };
+        }
+        const formatted = matches.slice(0, 30).map((m: any) => {
+          const file = m.file ?? m.path ?? "?";
+          const line = m.range?.start?.line ?? m.line ?? "?";
+          const text = (m.text ?? m.matched ?? "").slice(0, 200);
+          return `${file}:${line}: ${text}`;
+        }).join("\n");
+        const suffix = matches.length > 30 ? `\n... and ${matches.length - 30} more matches` : "";
+        return { content: [{ type: "text", text: formatted + suffix }], details: {} };
+      } catch (e: any) {
+        if (e.status && e.stdout) {
+          return { content: [{ type: "text", text: "No matches found." }], details: {} };
+        }
+        return { content: [{ type: "text", text: `ast-grep failed: ${e.message?.slice(0, 200)}` }], details: {} };
+      }
+    },
+  };
+}
+
+// ── Inspect tool: query entity dependency data from inspect's analysis ──
+function createInspectTool(entities: EntityReview[], findings: DetectorFinding[]): AgentTool<any> {
+  // Build lookup indexes
+  const byName: Map<string, EntityReview[]> = new Map();
+  for (const e of entities) {
+    const key = e.entity_name.toLowerCase();
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key)!.push(e);
+  }
+
+  return {
+    name: "inspect",
+    description: "Query the semantic analysis data for this diff. Use to look up an entity's dependents (who calls it), dependencies (what it calls), before/after code, risk score, and related detector findings. Use this when you need to trace data flow between methods or verify that a caller matches a callee's contract.",
+    parameters: Type.Object({
+      entity_name: Type.String({ description: "Name of the entity to look up (function, class, method name). Case-insensitive partial match." }),
+    }),
+    async execute(_id, params) {
+      const query = params.entity_name.toLowerCase();
+      const matches: EntityReview[] = [];
+      for (const [key, ents] of byName) {
+        if (key.includes(query) || query.includes(key)) {
+          matches.push(...ents);
+        }
+      }
+      if (matches.length === 0) {
+        return { content: [{ type: "text", text: `No entity found matching "${params.entity_name}". Available entities: ${[...byName.keys()].slice(0, 20).join(", ")}` }], details: {} };
+      }
+
+      const parts: string[] = [];
+      for (const e of matches.slice(0, 5)) {
+        parts.push(`## ${e.entity_name} (${e.entity_type}, ${e.change_type}) in ${e.file_path}`);
+        parts.push(`risk=${e.risk_score.toFixed(2)} public=${e.is_public_api} lines=${e.start_line}-${e.end_line}`);
+
+        const depNames = e.dependent_names ?? [];
+        if (depNames.length > 0) {
+          parts.push(`\nDependents (${depNames.length} — who calls/uses this):`);
+          for (const [name, file] of depNames.slice(0, 10)) {
+            parts.push(`  → ${name} in ${file}`);
+          }
+          if (depNames.length > 10) parts.push(`  ... +${depNames.length - 10} more`);
+        }
+
+        const deps = e.dependency_names ?? [];
+        if (deps.length > 0) {
+          parts.push(`\nDependencies (${deps.length} — what this calls/uses):`);
+          for (const [name, file] of deps.slice(0, 10)) {
+            parts.push(`  ← ${name} in ${file}`);
+          }
+          if (deps.length > 10) parts.push(`  ... +${deps.length - 10} more`);
+        }
+
+        // Related findings
+        const relatedFindings = findings.filter(f =>
+          f.entity_name.toLowerCase().includes(query) ||
+          f.file_path === e.file_path
+        );
+        if (relatedFindings.length > 0) {
+          parts.push(`\nDetector findings:`);
+          for (const f of relatedFindings.slice(0, 5)) {
+            parts.push(`  [${f.severity}] ${f.rule_id}: ${f.message}`);
+          }
+        }
+
+        // Before/after content snippets
+        if (e.before_content) {
+          parts.push(`\nBefore (${e.before_content.length} chars):\n${e.before_content.slice(0, 1500)}`);
+        }
+        if (e.after_content) {
+          parts.push(`\nAfter (${e.after_content.length} chars):\n${e.after_content.slice(0, 1500)}`);
+        }
+
+        parts.push("");
+      }
+
+      return { content: [{ type: "text", text: parts.join("\n") }], details: {} };
+    },
+  };
+}
+
 // ── Main ──
 async function main() {
   const raw = await readStdin();
@@ -395,6 +640,7 @@ async function main() {
 
   // Setup model + tools
   const model = getModel(provider as any, modelId);
+  const inspectTool = createInspectTool(entities, findings);
   const tools = [
     createReadTool(repoDir),
     createGrepTool(repoDir),
@@ -408,6 +654,8 @@ async function main() {
       },
     }),
     ...createWebTools(),
+    createAstGrepTool(repoDir),
+    inspectTool,
   ];
 
   // Build prompts
@@ -489,13 +737,14 @@ IMPORTANT — these ARE real bugs, DO extract them:
 DO NOT EXTRACT:
 - Hardening suggestions: "add rate limiting", "add validation", "add bounds check", "add error handling for edge case"
 - Missing features: "no feature X", "should add Y"
-- Theoretical concerns with hedging: "if someone were to...", "could potentially..."
 - Pure style/naming preferences with ZERO functional impact
 - Performance concerns: "N+1 queries", "unnecessary allocation"
 - Architectural opinions: "should use pattern X instead of Y"
 - Thread-safety concerns WITHOUT a concrete interleaving scenario
 - Duplicates: if same root cause appears in multiple files, extract only the ONE best instance
 - UI/UX state management issues
+
+IMPORTANT — extract even if the reviewer hedges with "may be by design", "could be intentional", "worth verifying". If the review describes a concrete consequence (e.g., "won't clean up resources", "will always fall back to X", "events won't fire"), that IS a bug report regardless of hedging language.
 
 Respond with ONLY this JSON, no other text:
 {"issues": [{"issue": "description", "evidence": "code snippet", "severity": "critical|high|medium", "file": "path", "canonical_key": "short-id", "bug_class": "crash|wrong_value|broken_caller|broken_test|platform_breakage|dead_code|race_condition|data_loss|security|wrong_message", "failing_scenario": "what goes wrong in one sentence"}]}
@@ -546,6 +795,8 @@ ${extractSource}
     const json = extractJson(extractionText);
     const parsed = JSON.parse(json);
     if (Array.isArray(parsed.issues)) candidates = parsed.issues;
+    // Handle model splitting issues across "issues" and "issues_continued"
+    if (Array.isArray(parsed.issues_continued)) candidates.push(...parsed.issues_continued);
   } catch {
     process.stderr.write(`[review-v2] WARNING: Extraction JSON parse failed\n`);
   }
@@ -677,6 +928,7 @@ ${issueList}`;
       verdict: "true_positive" as const,
       explanation: `[${issue.severity}] ${issue.issue} | evidence: ${issue.evidence || "see review"} | file: ${issue.file ?? "unknown"}`,
     })),
+    raw_review: reviewText,
   };
 
   process.stdout.write(JSON.stringify(output) + "\n");

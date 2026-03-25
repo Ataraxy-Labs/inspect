@@ -319,12 +319,14 @@ async def run_one_pr(pr, benchmark_data, model, timestamp, semaphore):
             f.write("\n")
 
         candidates = []
+        raw_review = ""
         try:
             agent_out = json.loads(stdout_text.strip())
             for v in agent_out.get("verdicts", []):
                 explanation = v.get("explanation", "")
                 if explanation:
                     candidates.append(explanation)
+            raw_review = agent_out.get("raw_review", "")
         except json.JSONDecodeError:
             result["status"] = "json_error"
             print(f"  [{pr_label}] JSON_ERROR ({elapsed:.0f}s, {tool_calls}tc)", file=sys.stderr)
@@ -333,6 +335,7 @@ async def run_one_pr(pr, benchmark_data, model, timestamp, semaphore):
         result["status"] = "ok"
         result["num_candidates"] = len(candidates)
         result["candidates"] = candidates
+        result["raw_review"] = raw_review
 
         print(f"  [{pr_label}] OK — {len(candidates)} issues, {tool_calls}tc, {elapsed:.0f}s",
               file=sys.stderr, flush=True)

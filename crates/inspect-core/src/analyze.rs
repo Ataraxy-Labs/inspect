@@ -646,16 +646,21 @@ fn load_or_build_graph(
     let cache_dir = Path::new("/tmp/inspect-graph-cache");
     let _ = std::fs::create_dir_all(cache_dir);
 
-    // Hash the canonical repo path as cache key
+    // Hash the canonical repo path + file count as cache key
+    // Including file count ensures cache is invalidated when repo content changes
     let canonical = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
     let mut hasher = DefaultHasher::new();
     canonical.hash(&mut hasher);
+    files.len().hash(&mut hasher);
     let cache_file = cache_dir.join(format!("{:016x}.bin", hasher.finish()));
 
     // Try loading from cache
     if let Ok(data) = std::fs::read(&cache_file) {
         if let Ok(graph) = bincode::deserialize::<EntityGraph>(&data) {
-            return graph;
+            // Reject empty cached graphs when we have source files — likely stale
+            if !graph.entities.is_empty() || files.is_empty() {
+                return graph;
+            }
         }
     }
 
