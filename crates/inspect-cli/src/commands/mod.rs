@@ -6,6 +6,7 @@ pub mod grep;
 pub mod login;
 pub mod logout;
 pub mod pr;
+pub mod pr_source;
 pub mod predict;
 pub mod review;
 pub mod whoami;

@@ -107,10 +107,12 @@ inspect diff HEAD~1 --format markdown  # markdown output (for agents)
 
 ### `inspect pr <number>`
 
-Review all changes in a GitHub pull request. Uses `gh` CLI to resolve base/head refs.
+Review all changes in a GitHub pull request. By default, uses `gh` CLI to resolve base/head commit OIDs and local git objects. Use `--fetch github` to fetch PR files through the GitHub API without local refs.
 
 ```bash
 inspect pr 42
+inspect pr 42 --fetch github --remote owner/repo
+inspect pr 42 --base abc123 --head def456
 inspect pr 42 --min-risk medium
 inspect pr 42 --format json
 ```
@@ -132,6 +134,8 @@ Triage + LLM review. Triages entities by risk, sends the highest-risk ones to an
 inspect review HEAD~1                          # Anthropic (default)
 inspect review HEAD~1 --provider ollama --model llama3  # local Ollama
 inspect review HEAD~1 --api-base http://localhost:8000/v1 --model my-model  # any OpenAI-compatible server
+inspect review 42 --fetch github --remote owner/repo --provider anthropic  # review a GitHub PR locally
+inspect review 42 --engine hosted --remote owner/repo  # submit to hosted inspect API
 inspect review HEAD~1 --min-risk medium        # review more entities
 inspect review HEAD~1 --max-entities 20        # send more to LLM
 ```

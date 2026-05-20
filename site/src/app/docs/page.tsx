@@ -80,6 +80,11 @@ export default function DocsPage() {
             <span className="cmd-doc-name">inspect pr &lt;number&gt;</span>
             <span className="cmd-doc-desc">Review all changes in a GitHub pull request</span>
           </div>
+          <div className="cmd-doc-flags">
+            <div className="flag"><code>--fetch &lt;source&gt;</code> <span>local (default) or github</span></div>
+            <div className="flag"><code>--remote &lt;owner/repo&gt;</code> <span>Required with --fetch github</span></div>
+            <div className="flag"><code>--base &lt;ref&gt; --head &lt;ref&gt;</code> <span>Compare explicit refs instead of PR refs</span></div>
+          </div>
         </div>
 
         <div className="cmd-doc">
@@ -106,6 +111,9 @@ export default function DocsPage() {
             <div className="flag"><code>--model &lt;model&gt;</code> <span>Model name (e.g. claude-sonnet-4-5-20250929, gpt-4o, llama3)</span></div>
             <div className="flag"><code>--api-base &lt;url&gt;</code> <span>Custom endpoint URL. Automatically uses the OpenAI-compatible client.</span></div>
             <div className="flag"><code>--api-key &lt;key&gt;</code> <span>API key (overrides env var)</span></div>
+            <div className="flag"><code>--fetch &lt;source&gt;</code> <span>local (default) or github. Use github to review a PR locally from the GitHub API.</span></div>
+            <div className="flag"><code>--engine &lt;engine&gt;</code> <span>local (default) or hosted. Hosted requires inspect login.</span></div>
+            <div className="flag"><code>--remote &lt;owner/repo&gt;</code> <span>Required with --fetch github or --engine hosted</span></div>
             <div className="flag"><code>--min-risk &lt;level&gt;</code> <span>Minimum risk to review (default: high)</span></div>
             <div className="flag"><code>--max-entities &lt;n&gt;</code> <span>Cap on entities sent to LLM (default: 10)</span></div>
           </div>

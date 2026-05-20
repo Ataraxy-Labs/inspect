@@ -1,14 +1,13 @@
 use std::path::PathBuf;
-use std::process::Command;
 
 use clap::Args;
-use sem_core::git::types::DiffScope;
 
+use crate::commands::pr_source::{
+    analyze_explicit_range, analyze_github_pr, analyze_local_pr, FetchSource,
+};
 use crate::formatters;
 use crate::OutputFormat;
-use inspect_core::analyze::{analyze, analyze_remote, retain_entity_reviews};
-use inspect_core::github::GitHubClient;
-use inspect_core::noise::is_noise_file;
+use inspect_core::analyze::retain_entity_reviews;
 use inspect_core::types::RiskLevel;
 
 #[derive(Args)]
@@ -28,9 +27,21 @@ pub struct PrArgs {
     #[arg(long)]
     pub context: bool,
 
-    /// Remote repository (owner/repo). If set, fetches from GitHub API instead of local git.
+    /// PR content source
+    #[arg(long, value_enum, default_value = "local")]
+    pub fetch: FetchSource,
+
+    /// Remote repository (owner/repo), required with --fetch github.
     #[arg(long)]
     pub remote: Option<String>,
+
+    /// Explicit base commit/ref to compare instead of looking up PR refs.
+    #[arg(long, requires = "head")]
+    pub base: Option<String>,
+
+    /// Explicit head commit/ref to compare instead of looking up PR refs.
+    #[arg(long, requires = "base")]
+    pub head: Option<String>,
 
     /// Repository path (for local mode)
     #[arg(short = 'C', long, default_value = ".")]
@@ -38,106 +49,43 @@ pub struct PrArgs {
 }
 
 pub async fn run(args: PrArgs) {
-    if let Some(ref remote_repo) = args.remote {
-        run_remote(&args, remote_repo).await;
-    } else {
-        run_local(&args);
-    }
-}
-
-fn run_local(args: &PrArgs) {
     let repo = args.repo.canonicalize().unwrap_or(args.repo.clone());
 
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "view",
-            &args.number.to_string(),
-            "--json",
-            "baseRefName,headRefName",
-        ])
-        .current_dir(&repo)
-        .output();
-
-    let output = match output {
-        Ok(o) if o.status.success() => o,
-        Ok(o) => {
-            eprintln!(
-                "error: gh pr view failed: {}",
-                String::from_utf8_lossy(&o.stderr)
-            );
+    let result = if args.base.is_some() || args.head.is_some() {
+        if args.fetch == FetchSource::Github {
+            eprintln!("error: --base/--head cannot be combined with --fetch github");
             std::process::exit(1);
         }
-        Err(e) => {
-            eprintln!("error: could not run gh CLI: {}", e);
+        if args.remote.is_some() {
+            eprintln!("error: --remote is only used with --fetch github");
             std::process::exit(1);
+        }
+        analyze_explicit_range(&repo, args.base.as_deref(), args.head.as_deref())
+            .and_then(|result| result.ok_or_else(|| "missing --base/--head".to_string()))
+    } else {
+        match args.fetch {
+            FetchSource::Local => {
+                if args.remote.is_some() {
+                    eprintln!(
+                        "error: --remote names a GitHub repository; use --fetch github --remote owner/repo"
+                    );
+                    std::process::exit(1);
+                }
+                analyze_local_pr(&repo, args.number)
+            }
+            FetchSource::Github => {
+                let Some(remote_repo) = args.remote.as_deref() else {
+                    eprintln!("error: --fetch github requires --remote owner/repo");
+                    std::process::exit(1);
+                };
+                analyze_github_pr(remote_repo, args.number).await
+            }
         }
     };
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("invalid gh output");
-    let base = json["baseRefName"].as_str().unwrap_or("main");
-    let head = json["headRefName"].as_str().unwrap_or("HEAD");
-
-    let scope = DiffScope::Range {
-        from: base.to_string(),
-        to: head.to_string(),
-    };
-
-    match analyze(&repo, scope) {
+    match result {
         Ok(mut result) => {
-            apply_filters_and_print(&mut result, args);
-        }
-        Err(e) => {
-            eprintln!("error: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
-async fn run_remote(args: &PrArgs, remote_repo: &str) {
-    let client = match GitHubClient::new() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    eprintln!("Fetching PR #{} from {}...", args.number, remote_repo);
-
-    let pr = match client.get_pr(remote_repo, args.number).await {
-        Ok(pr) => pr,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let visible_files: Vec<_> = pr
-        .files
-        .iter()
-        .filter(|f| !is_noise_file(&f.filename))
-        .cloned()
-        .collect();
-
-    let noise_count = pr.files.len() - visible_files.len();
-    if noise_count > 0 {
-        eprintln!("({} noise files hidden)", noise_count);
-    }
-
-    eprintln!("Fetching {} file contents...", visible_files.len());
-
-    // Use head_sha (commit SHA) instead of head_ref (branch name) for fetching
-    // after content. For fork PRs, the branch name doesn't exist on the base repo,
-    // but the commit SHA is accessible via GitHub's merge refs.
-    let file_pairs = client
-        .get_file_pairs(remote_repo, &visible_files, &pr.base_sha, &pr.head_sha)
-        .await;
-
-    match analyze_remote(&file_pairs) {
-        Ok(mut result) => {
-            apply_filters_and_print(&mut result, args);
+            apply_filters_and_print(&mut result, &args);
         }
         Err(e) => {
             eprintln!("error: {}", e);

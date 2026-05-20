@@ -1,21 +1,37 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use colored::Colorize;
 use sem_core::git::types::DiffScope;
 
+use crate::commands::pr_source::{analyze_github_pr, FetchSource};
 use crate::OutputFormat;
 use inspect_core::analyze::analyze;
 use inspect_core::llm::{
     estimate_entity_input_tokens, AnthropicClient, EntityLlmReview, LlmProvider, LlmReviewOptions,
     LlmReviewStatus, LlmVerdict, OpenAIClient,
 };
-use inspect_core::types::RiskLevel;
+use inspect_core::types::{ReviewResult, RiskLevel};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ReviewEngine {
+    /// Run the review locally using the selected LLM provider.
+    Local,
+    /// Submit the review to the hosted inspect API.
+    Hosted,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReviewMode {
+    LocalDiff,
+    GithubPr,
+    Hosted,
+}
 
 #[derive(Args)]
 pub struct ReviewArgs {
-    /// Commit ref, range, or PR number (with --remote)
+    /// Commit ref, range, or PR number (with --fetch github or --engine hosted)
     pub target: String,
 
     /// Output format
@@ -50,7 +66,15 @@ pub struct ReviewArgs {
     #[arg(long)]
     pub api_key: Option<String>,
 
-    /// Remote repo (e.g. owner/repo). Target becomes PR number.
+    /// PR content source for local review
+    #[arg(long, value_enum, default_value = "local")]
+    pub fetch: FetchSource,
+
+    /// Review engine
+    #[arg(long, value_enum, default_value = "local")]
+    pub engine: ReviewEngine,
+
+    /// Remote repo (owner/repo), required with --fetch github or --engine hosted.
     #[arg(long)]
     pub remote: Option<String>,
 
@@ -118,14 +142,44 @@ fn build_provider(args: &ReviewArgs) -> Result<Box<dyn LlmProvider>, String> {
 }
 
 pub async fn run(args: ReviewArgs) {
-    if args.remote.is_some() {
-        return run_remote(args).await;
+    let mode = match validate_review_mode(
+        args.engine,
+        args.fetch,
+        args.remote.is_some(),
+        args.strategy.is_some(),
+    ) {
+        Ok(mode) => mode,
+        Err(e) => {
+            eprintln!("{}", format!("error: {e}").red());
+            std::process::exit(1);
+        }
+    };
+
+    if mode == ReviewMode::Hosted {
+        return run_hosted(args).await;
     }
 
-    let scope = parse_scope(&args.target);
-    let repo = args.repo.canonicalize().unwrap_or(args.repo.clone());
+    let result = match mode {
+        ReviewMode::LocalDiff => {
+            let scope = parse_scope(&args.target);
+            let repo = args.repo.canonicalize().unwrap_or(args.repo.clone());
+            analyze(&repo, scope).map_err(|e| e.to_string())
+        }
+        ReviewMode::GithubPr => {
+            let Some(remote_repo) = args.remote.as_deref() else {
+                eprintln!(
+                    "{}",
+                    "error: --fetch github requires --remote owner/repo".red()
+                );
+                std::process::exit(1);
+            };
+            let pr_number = parse_pr_number(&args.target, "--fetch github");
+            analyze_github_pr(remote_repo, pr_number).await
+        }
+        ReviewMode::Hosted => unreachable!("hosted mode returned before local review"),
+    };
 
-    let mut result = match analyze(&repo, scope) {
+    let result = match result {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {}", e);
@@ -133,6 +187,52 @@ pub async fn run(args: ReviewArgs) {
         }
     };
 
+    run_local_review(&args, result).await;
+}
+
+fn validate_review_mode(
+    engine: ReviewEngine,
+    fetch: FetchSource,
+    has_remote: bool,
+    has_strategy: bool,
+) -> Result<ReviewMode, String> {
+    if engine == ReviewEngine::Hosted {
+        if fetch != FetchSource::Local {
+            return Err(
+                "hosted reviews fetch PR content through the inspect API; omit --fetch github"
+                    .to_string(),
+            );
+        }
+        if !has_remote {
+            return Err("--engine hosted requires --remote owner/repo".to_string());
+        }
+        return Ok(ReviewMode::Hosted);
+    }
+
+    if has_remote && fetch == FetchSource::Local {
+        return Err(
+            "--remote only names a GitHub repository; choose --fetch github for local review or --engine hosted"
+                .to_string(),
+        );
+    }
+
+    if has_strategy {
+        return Err("--strategy is only supported with --engine hosted".to_string());
+    }
+
+    match fetch {
+        FetchSource::Local => Ok(ReviewMode::LocalDiff),
+        FetchSource::Github => {
+            if has_remote {
+                Ok(ReviewMode::GithubPr)
+            } else {
+                Err("--fetch github requires --remote owner/repo".to_string())
+            }
+        }
+    }
+}
+
+async fn run_local_review(args: &ReviewArgs, mut result: ReviewResult) {
     let total_entities = result.entity_reviews.len();
 
     let min_level = parse_risk_level(&args.min_risk);
@@ -431,18 +531,15 @@ fn summarize_reviews(reviews: &[EntityLlmReview]) -> ReviewSummary {
     summary
 }
 
-async fn run_remote(args: ReviewArgs) {
-    let remote = args.remote.as_ref().unwrap();
-    let pr_number: u64 = match args.target.parse() {
-        Ok(n) => n,
-        Err(_) => {
-            eprintln!(
-                "{}",
-                "error: target must be a PR number when using --remote".red()
-            );
-            std::process::exit(1);
-        }
+async fn run_hosted(args: ReviewArgs) {
+    let Some(remote) = args.remote.as_ref() else {
+        eprintln!(
+            "{}",
+            "error: --engine hosted requires --remote owner/repo".red()
+        );
+        std::process::exit(1);
     };
+    let pr_number = parse_pr_number(&args.target, "--engine hosted");
 
     let creds = match crate::config::require_credentials() {
         Ok(c) => c,
@@ -613,6 +710,19 @@ fn parse_scope(target: &str) -> DiffScope {
     }
 }
 
+fn parse_pr_number(target: &str, mode: &str) -> u64 {
+    match target.parse() {
+        Ok(n) => n,
+        Err(_) => {
+            eprintln!(
+                "{}",
+                format!("error: target must be a PR number when using {mode}").red()
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 fn parse_risk_level(s: &str) -> RiskLevel {
     match s.to_lowercase().as_str() {
         "critical" => RiskLevel::Critical,
@@ -672,5 +782,46 @@ mod tests {
         assert_eq!(format_markdown_status(&failed), "Failed");
         assert_eq!(format_markdown_status(&skipped), "Skipped");
         assert_eq!(format_markdown_status(&reviewed), "Changes Requested");
+    }
+
+    #[test]
+    fn github_fetch_with_remote_runs_local_github_pr_review() {
+        let mode =
+            validate_review_mode(ReviewEngine::Local, FetchSource::Github, true, false).unwrap();
+
+        assert_eq!(mode, ReviewMode::GithubPr);
+    }
+
+    #[test]
+    fn hosted_engine_requires_remote() {
+        let error = validate_review_mode(ReviewEngine::Hosted, FetchSource::Local, false, false)
+            .unwrap_err();
+
+        assert!(error.contains("--engine hosted requires --remote"));
+    }
+
+    #[test]
+    fn remote_without_fetch_or_engine_is_rejected() {
+        let error =
+            validate_review_mode(ReviewEngine::Local, FetchSource::Local, true, false).unwrap_err();
+
+        assert!(error.contains("choose --fetch github"));
+        assert!(error.contains("--engine hosted"));
+    }
+
+    #[test]
+    fn hosted_engine_rejects_github_fetch() {
+        let error = validate_review_mode(ReviewEngine::Hosted, FetchSource::Github, true, false)
+            .unwrap_err();
+
+        assert!(error.contains("omit --fetch github"));
+    }
+
+    #[test]
+    fn local_review_rejects_hosted_strategy() {
+        let error =
+            validate_review_mode(ReviewEngine::Local, FetchSource::Local, false, true).unwrap_err();
+
+        assert!(error.contains("--strategy is only supported"));
     }
 }
