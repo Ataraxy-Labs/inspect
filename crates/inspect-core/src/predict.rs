@@ -95,12 +95,11 @@ pub fn predict_with_options(
                 continue;
             }
 
-            // Read source from disk
-            let file_content =
-                match std::fs::read_to_string(repo_path.join(&dep.file_path)) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
+            // Read source from the same tree used to build the graph.
+            let file_content = match std::fs::read_to_string(ctx.source_root.join(&dep.file_path)) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
             let lines: Vec<&str> = file_content.lines().collect();
             let start = dep.start_line.saturating_sub(1);
             let end = dep.end_line.min(lines.len());
@@ -228,17 +227,32 @@ mod tests {
             .unwrap();
     }
 
-    fn commit(dir: &Path, msg: &str) {
-        Command::new("git")
+    fn commit(dir: &Path, msg: &str) -> String {
+        let add = Command::new("git")
             .args(["add", "-A"])
             .current_dir(dir)
             .output()
             .unwrap();
-        Command::new("git")
+        assert!(add.status.success(), "git add failed");
+
+        let commit = Command::new("git")
             .args(["commit", "-m", msg, "--allow-empty"])
             .current_dir(dir)
             .output()
             .unwrap();
+        assert!(
+            commit.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+
+        let output = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git rev-parse failed");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
     #[test]
@@ -282,13 +296,58 @@ mod tests {
         .unwrap();
 
         // Should find at least 1 threat (calculate_tax changed)
-        assert!(
-            !result.threats.is_empty(),
-            "Expected threats, got none"
-        );
+        assert!(!result.threats.is_empty(), "Expected threats, got none");
 
         let threat = &result.threats[0];
         assert_eq!(threat.entity_name, "calculate_tax");
+    }
+
+    #[test]
+    fn predict_commit_reads_at_risk_code_from_commit_tree() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(
+            dir.join("lib.py"),
+            "def calculate_tax(amount):\n    return amount * 0.1\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("main.py"),
+            concat!(
+                "from lib import calculate_tax\n\n",
+                "def process_payment(amount):\n    tax = calculate_tax(amount)\n    return amount + tax\n",
+            ),
+        )
+        .unwrap();
+        commit(dir, "init");
+
+        std::fs::write(
+            dir.join("lib.py"),
+            "def calculate_tax(amount, rate=0.2):\n    return amount * rate\n",
+        )
+        .unwrap();
+        let change_sha = commit(dir, "change tax");
+
+        let rm = Command::new("git")
+            .args(["rm", "-q", "lib.py", "main.py"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(rm.status.success(), "git rm failed");
+        commit(dir, "remove files");
+
+        let result = predict(dir, DiffScope::Commit { sha: change_sha }).unwrap();
+        let threat = result
+            .threats
+            .iter()
+            .find(|t| t.entity_name == "calculate_tax")
+            .expect("calculate_tax should threaten historical callers");
+
+        assert!(threat.at_risk.iter().any(|entity| {
+            entity.entity_name == "process_payment" && entity.content.contains("calculate_tax")
+        }));
     }
 
     #[test]
@@ -301,11 +360,7 @@ mod tests {
         commit(dir, "init");
 
         // Add new function (nobody calls it)
-        std::fs::write(
-            dir.join("main.py"),
-            "def new_func():\n    return 42\n",
-        )
-        .unwrap();
+        std::fs::write(dir.join("main.py"), "def new_func():\n    return 42\n").unwrap();
         commit(dir, "add new func");
 
         let result = predict(

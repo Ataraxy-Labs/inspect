@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use git2::{ObjectType, Repository, Tree};
 use sem_core::git::bridge::GitBridge;
 use sem_core::git::types::{DiffScope, FileChange, FileStatus};
 use sem_core::model::change::ChangeType;
 use sem_core::parser::differ::compute_semantic_diff;
 use sem_core::parser::graph::EntityGraph;
 use sem_core::parser::plugins::create_default_registry;
+use tempfile::TempDir;
 
 use crate::classify::classify_change;
 use crate::github::FilePair;
@@ -39,6 +41,8 @@ impl Default for AnalyzeOptions {
 /// Used by both analyze and predict.
 pub(crate) struct AnalysisContext {
     pub graph: EntityGraph,
+    pub source_root: std::path::PathBuf,
+    _source_tree: Option<TempDir>,
     pub changes: Vec<sem_core::model::change::SemanticChange>,
     pub changed_entity_ids: HashSet<String>,
     pub total_graph_entities: usize,
@@ -79,9 +83,10 @@ pub(crate) fn build_context(
         return Ok(None);
     }
 
-    // Phase 2: List all source files in the repo
+    // Phase 2: List all source files in the graph source tree
     let list_start = Instant::now();
-    let all_files = list_source_files(repo_path)?;
+    let graph_source = graph_source_for_scope(git.repo_root(), &scope)?;
+    let all_files = graph_source.files;
     let file_count = all_files.len();
     let list_files_ms = list_start.elapsed().as_millis() as u64;
 
@@ -90,12 +95,14 @@ pub(crate) fn build_context(
 
     // Phase 3: Build entity graph from ALL source files (parallel via rayon)
     let graph_start = Instant::now();
-    let (graph, _all_entities) = EntityGraph::build(git.repo_root(), &all_files, &registry);
+    let (graph, _all_entities) = EntityGraph::build(&graph_source.root, &all_files, &registry);
     let graph_build_ms = graph_start.elapsed().as_millis() as u64;
     let total_graph_entities = graph.entities.len();
 
     Ok(Some(AnalysisContext {
         graph,
+        source_root: graph_source.root,
+        _source_tree: graph_source.temp_dir,
         changes: diff.changes,
         changed_entity_ids,
         total_graph_entities,
@@ -135,6 +142,8 @@ pub fn analyze_with_options(
         list_files_ms,
         file_count,
         graph_build_ms,
+        source_root,
+        _source_tree,
     } = ctx;
 
     // Phase 4: Score, classify, untangle
@@ -213,7 +222,7 @@ pub fn analyze_with_options(
     if options.include_dependent_code {
         for review in &mut reviews {
             review.dependent_entities =
-                collect_dependent_code(&graph, &review.entity_id, repo_path, options);
+                collect_dependent_code(&graph, &review.entity_id, &source_root, options);
         }
     }
 
@@ -433,7 +442,7 @@ pub(crate) fn compute_stats(reviews: &[EntityReview]) -> ReviewStats {
 fn collect_dependent_code(
     graph: &EntityGraph,
     entity_id: &str,
-    repo_path: &Path,
+    source_root: &Path,
     options: &AnalyzeOptions,
 ) -> Vec<DependentEntity> {
     let dependents = graph.get_dependents(entity_id);
@@ -452,11 +461,13 @@ fn collect_dependent_code(
         .iter()
         .map(|dep| {
             let own_dep_count = graph.get_dependents(&dep.id).len();
-            let content_hint = std::fs::read_to_string(repo_path.join(&dep.file_path))
+            let content_hint = std::fs::read_to_string(source_root.join(&dep.file_path))
                 .ok()
                 .and_then(|c| {
                     let lines: Vec<&str> = c.lines().collect();
-                    lines.get(dep.start_line.saturating_sub(1)).map(|l| l.to_string())
+                    lines
+                        .get(dep.start_line.saturating_sub(1))
+                        .map(|l| l.to_string())
                 });
             let is_pub = is_public_api(&dep.entity_type, &dep.name, content_hint.as_deref());
             let is_cross_file = dep.file_path != source_file;
@@ -476,7 +487,7 @@ fn collect_dependent_code(
                 return None;
             }
 
-            let file_content = std::fs::read_to_string(repo_path.join(&dep.file_path)).ok()?;
+            let file_content = std::fs::read_to_string(source_root.join(&dep.file_path)).ok()?;
             let lines: Vec<&str> = file_content.lines().collect();
             let start = dep.start_line.saturating_sub(1);
             let end = dep.end_line.min(lines.len());
@@ -503,6 +514,130 @@ fn collect_dependent_code(
         .collect()
 }
 
+struct GraphSource {
+    root: std::path::PathBuf,
+    files: Vec<String>,
+    temp_dir: Option<TempDir>,
+}
+
+fn graph_source_for_scope(
+    repo_root: &Path,
+    scope: &DiffScope,
+) -> Result<GraphSource, AnalyzeError> {
+    match scope {
+        DiffScope::Commit { sha } => materialize_tree_source(repo_root, sha),
+        DiffScope::Range { to, .. } => materialize_tree_source(repo_root, to),
+        DiffScope::Staged => materialize_index_source(repo_root),
+        DiffScope::Working | DiffScope::RefToWorking { .. } => {
+            let files = list_source_files(repo_root)?;
+            Ok(GraphSource {
+                root: repo_root.to_path_buf(),
+                files,
+                temp_dir: None,
+            })
+        }
+    }
+}
+
+fn materialize_index_source(repo_root: &Path) -> Result<GraphSource, AnalyzeError> {
+    let repo = Repository::discover(repo_root).map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let index = repo.index().map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let temp_dir = TempDir::new().map_err(|e| AnalyzeError::Io(e.to_string()))?;
+    let mut files = Vec::new();
+
+    for entry in index.iter() {
+        let Ok(path) = std::str::from_utf8(&entry.path) else {
+            continue;
+        };
+        if !is_source_file(path) {
+            continue;
+        }
+
+        let blob = repo
+            .find_blob(entry.id)
+            .map_err(|e| AnalyzeError::Git(e.to_string()))?;
+        write_source_blob(temp_dir.path(), path, blob.content(), &mut files)?;
+    }
+
+    Ok(GraphSource {
+        root: temp_dir.path().to_path_buf(),
+        files,
+        temp_dir: Some(temp_dir),
+    })
+}
+
+fn materialize_tree_source(repo_root: &Path, refspec: &str) -> Result<GraphSource, AnalyzeError> {
+    let repo = Repository::discover(repo_root).map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let object = repo
+        .revparse_single(refspec)
+        .map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let tree = object
+        .peel_to_tree()
+        .map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let temp_dir = TempDir::new().map_err(|e| AnalyzeError::Io(e.to_string()))?;
+    let mut files = Vec::new();
+
+    materialize_source_files(&repo, &tree, "", temp_dir.path(), &mut files)?;
+
+    Ok(GraphSource {
+        root: temp_dir.path().to_path_buf(),
+        files,
+        temp_dir: Some(temp_dir),
+    })
+}
+
+fn materialize_source_files(
+    repo: &Repository,
+    tree: &Tree<'_>,
+    prefix: &str,
+    target_root: &Path,
+    files: &mut Vec<String>,
+) -> Result<(), AnalyzeError> {
+    for entry in tree.iter() {
+        let name = entry
+            .name()
+            .ok_or_else(|| AnalyzeError::Git("tree entry is not valid UTF-8".into()))?;
+        let path = if prefix.is_empty() {
+            name.to_string()
+        } else {
+            format!("{prefix}/{name}")
+        };
+
+        match entry.kind() {
+            Some(ObjectType::Tree) => {
+                let subtree = repo
+                    .find_tree(entry.id())
+                    .map_err(|e| AnalyzeError::Git(e.to_string()))?;
+                materialize_source_files(repo, &subtree, &path, target_root, files)?;
+            }
+            Some(ObjectType::Blob) if is_source_file(&path) => {
+                let blob = repo
+                    .find_blob(entry.id())
+                    .map_err(|e| AnalyzeError::Git(e.to_string()))?;
+                write_source_blob(target_root, &path, blob.content(), files)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn write_source_blob(
+    target_root: &Path,
+    path: &str,
+    content: &[u8],
+    files: &mut Vec<String>,
+) -> Result<(), AnalyzeError> {
+    let target_path = target_root.join(path);
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| AnalyzeError::Io(e.to_string()))?;
+    }
+    std::fs::write(&target_path, content).map_err(|e| AnalyzeError::Io(e.to_string()))?;
+    files.push(path.to_string());
+    Ok(())
+}
+
 /// List all tracked source files in the repo via `git ls-files`.
 fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
     let output = std::process::Command::new("git")
@@ -519,26 +654,28 @@ fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
     let files: Vec<String> = stdout
         .lines()
         .filter(|f| !is_noise_file(f))
-        .filter(|f| {
-            let f = f.to_lowercase();
-            f.ends_with(".rs")
-                || f.ends_with(".ts")
-                || f.ends_with(".tsx")
-                || f.ends_with(".js")
-                || f.ends_with(".jsx")
-                || f.ends_with(".py")
-                || f.ends_with(".go")
-                || f.ends_with(".java")
-                || f.ends_with(".c")
-                || f.ends_with(".cpp")
-                || f.ends_with(".rb")
-                || f.ends_with(".cs")
-                || f.ends_with(".php")
-        })
+        .filter(|f| is_source_file(f))
         .map(|s| s.to_string())
         .collect();
 
     Ok(files)
+}
+
+fn is_source_file(path: &str) -> bool {
+    let path = path.to_lowercase();
+    path.ends_with(".rs")
+        || path.ends_with(".ts")
+        || path.ends_with(".tsx")
+        || path.ends_with(".js")
+        || path.ends_with(".jsx")
+        || path.ends_with(".py")
+        || path.ends_with(".go")
+        || path.ends_with(".java")
+        || path.ends_with(".c")
+        || path.ends_with(".cpp")
+        || path.ends_with(".rb")
+        || path.ends_with(".cs")
+        || path.ends_with(".php")
 }
 
 fn empty_result() -> ReviewResult {
@@ -576,6 +713,8 @@ fn empty_result() -> ReviewResult {
 pub enum AnalyzeError {
     #[error("git error: {0}")]
     Git(String),
+    #[error("io error: {0}")]
+    Io(String),
 }
 
 #[cfg(test)]
@@ -602,17 +741,32 @@ mod tests {
             .unwrap();
     }
 
-    fn commit(dir: &Path, msg: &str) {
-        Command::new("git")
+    fn commit(dir: &Path, msg: &str) -> String {
+        let add = Command::new("git")
             .args(["add", "-A"])
             .current_dir(dir)
             .output()
             .unwrap();
-        Command::new("git")
+        assert!(add.status.success(), "git add failed");
+
+        let commit = Command::new("git")
             .args(["commit", "-m", msg, "--allow-empty"])
             .current_dir(dir)
             .output()
             .unwrap();
+        assert!(
+            commit.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+
+        let output = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git rev-parse failed");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
     #[test]
@@ -626,7 +780,11 @@ mod tests {
         commit(dir, "init");
 
         // Add a function
-        std::fs::write(dir.join("main.rs"), "fn hello() {\n    println!(\"hello\");\n}\n").unwrap();
+        std::fs::write(
+            dir.join("main.rs"),
+            "fn hello() {\n    println!(\"hello\");\n}\n",
+        )
+        .unwrap();
         commit(dir, "add hello");
 
         let result = analyze(
@@ -641,6 +799,216 @@ mod tests {
         let review = &result.entity_reviews[0];
         assert_eq!(review.change_type, ChangeType::Added);
         assert_eq!(review.classification, ChangeClassification::Functional);
+    }
+
+    #[test]
+    fn analyze_commit_uses_commit_tree_for_graph_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(dir.join("README.md"), "init\n").unwrap();
+        commit(dir, "init");
+
+        std::fs::write(
+            dir.join("service.py"),
+            concat!(
+                "def helper():\n",
+                "    return 'ok'\n\n",
+                "def caller():\n",
+                "    return helper()\n",
+            ),
+        )
+        .unwrap();
+        let add_sha = commit(dir, "add service");
+
+        let rm = Command::new("git")
+            .args(["rm", "-q", "service.py"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(rm.status.success(), "git rm failed");
+        commit(dir, "remove service");
+
+        let result = analyze(dir, DiffScope::Commit { sha: add_sha }).unwrap();
+
+        assert!(result.timing.file_count > 0);
+        assert!(result.timing.graph_entity_count >= 2);
+
+        let helper = result
+            .entity_reviews
+            .iter()
+            .find(|r| r.entity_name == "helper")
+            .expect("helper should be reviewed");
+        assert!(helper.start_line > 0);
+        assert!(helper.end_line >= helper.start_line);
+        assert!(helper.dependent_count > 0);
+
+        let caller = result
+            .entity_reviews
+            .iter()
+            .find(|r| r.entity_name == "caller")
+            .expect("caller should be reviewed");
+        assert!(caller.start_line > 0);
+        assert!(caller.dependency_count > 0);
+    }
+
+    #[test]
+    fn analyze_range_uses_to_tree_for_graph_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(dir.join("README.md"), "init\n").unwrap();
+        let init_sha = commit(dir, "init");
+
+        std::fs::write(
+            dir.join("service.py"),
+            concat!(
+                "def helper():\n",
+                "    return 'ok'\n\n",
+                "def caller():\n",
+                "    return helper()\n",
+            ),
+        )
+        .unwrap();
+        let add_sha = commit(dir, "add service");
+
+        let rm = Command::new("git")
+            .args(["rm", "-q", "service.py"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(rm.status.success(), "git rm failed");
+        commit(dir, "remove service");
+
+        let result = analyze(
+            dir,
+            DiffScope::Range {
+                from: init_sha,
+                to: add_sha,
+            },
+        )
+        .unwrap();
+
+        let helper = result
+            .entity_reviews
+            .iter()
+            .find(|r| r.entity_name == "helper")
+            .expect("helper should be reviewed");
+        assert!(helper.start_line > 0);
+        assert!(helper.dependent_count > 0);
+    }
+
+    #[test]
+    fn analyze_staged_uses_index_tree_for_graph_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(
+            dir.join("service.py"),
+            concat!(
+                "def helper():\n",
+                "    return 'old'\n\n",
+                "def caller():\n",
+                "    return helper()\n",
+            ),
+        )
+        .unwrap();
+        commit(dir, "init");
+
+        std::fs::write(
+            dir.join("service.py"),
+            concat!(
+                "def helper(prefix='ok'):\n",
+                "    return prefix\n\n",
+                "def caller():\n",
+                "    return helper()\n",
+            ),
+        )
+        .unwrap();
+        let add = Command::new("git")
+            .args(["add", "service.py"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(add.status.success(), "git add failed");
+
+        std::fs::write(
+            dir.join("service.py"),
+            "def helper(prefix='ok'):\n    return prefix\n",
+        )
+        .unwrap();
+
+        let result = analyze(dir, DiffScope::Staged).unwrap();
+        let helper = result
+            .entity_reviews
+            .iter()
+            .find(|r| r.entity_name == "helper")
+            .expect("helper should be reviewed");
+
+        assert!(helper.start_line > 0);
+        assert_eq!(helper.dependent_count, 1);
+    }
+
+    #[test]
+    fn analyze_with_dependents_reads_dependent_code_from_commit_tree() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(
+            dir.join("service.py"),
+            concat!(
+                "def helper():\n",
+                "    return 'old'\n\n",
+                "def caller():\n",
+                "    return helper()\n",
+            ),
+        )
+        .unwrap();
+        commit(dir, "init");
+
+        std::fs::write(
+            dir.join("service.py"),
+            concat!(
+                "def helper(prefix='ok'):\n",
+                "    return prefix\n\n",
+                "def caller():\n",
+                "    return helper()\n",
+            ),
+        )
+        .unwrap();
+        let change_sha = commit(dir, "change helper");
+
+        let rm = Command::new("git")
+            .args(["rm", "-q", "service.py"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(rm.status.success(), "git rm failed");
+        commit(dir, "remove service");
+
+        let result = analyze_with_options(
+            dir,
+            DiffScope::Commit { sha: change_sha },
+            &AnalyzeOptions {
+                include_dependent_code: true,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .unwrap();
+
+        let helper = result
+            .entity_reviews
+            .iter()
+            .find(|r| r.entity_name == "helper")
+            .expect("helper should be reviewed");
+
+        assert!(helper.dependent_entities.iter().any(|entity| {
+            entity.entity_name == "caller" && entity.content.contains("return helper()")
+        }));
     }
 
     #[test]

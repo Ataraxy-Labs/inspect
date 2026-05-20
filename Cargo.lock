@@ -970,6 +970,7 @@ dependencies = [
  "async-trait",
  "base64",
  "futures",
+ "git2",
  "reqwest",
  "sem-core",
  "serde",
