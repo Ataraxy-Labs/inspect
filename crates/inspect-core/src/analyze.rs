@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use git2::{ObjectType, Repository, Tree};
@@ -8,6 +9,7 @@ use sem_core::model::change::ChangeType;
 use sem_core::parser::differ::compute_semantic_diff;
 use sem_core::parser::graph::EntityGraph;
 use sem_core::parser::plugins::create_default_registry;
+use sem_core::parser::registry::ParserRegistry;
 use tempfile::TempDir;
 
 use crate::classify::classify_change;
@@ -16,6 +18,8 @@ use crate::noise::is_noise_file;
 use crate::risk::{compute_risk_score, is_public_api, rank_dependent, score_to_level};
 use crate::types::*;
 use crate::untangle::untangle;
+
+const CONTENT_DETECTION_SAMPLE_BYTES: usize = 16 * 1024;
 
 /// Options for controlling analysis behavior.
 pub struct AnalyzeOptions {
@@ -85,7 +89,7 @@ pub(crate) fn build_context(
 
     // Phase 2: List all source files in the graph source tree
     let list_start = Instant::now();
-    let graph_source = graph_source_for_scope(git.repo_root(), &scope)?;
+    let graph_source = graph_source_for_scope(git.repo_root(), &scope, &registry)?;
     let all_files = graph_source.files;
     let file_count = all_files.len();
     let list_files_ms = list_start.elapsed().as_millis() as u64;
@@ -565,13 +569,14 @@ struct GraphSource {
 fn graph_source_for_scope(
     repo_root: &Path,
     scope: &DiffScope,
+    registry: &ParserRegistry,
 ) -> Result<GraphSource, AnalyzeError> {
     match scope {
-        DiffScope::Commit { sha } => materialize_tree_source(repo_root, sha),
-        DiffScope::Range { to, .. } => materialize_tree_source(repo_root, to),
-        DiffScope::Staged => materialize_index_source(repo_root),
+        DiffScope::Commit { sha } => materialize_tree_source(repo_root, sha, registry),
+        DiffScope::Range { to, .. } => materialize_tree_source(repo_root, to, registry),
+        DiffScope::Staged => materialize_index_source(repo_root, registry),
         DiffScope::Working | DiffScope::RefToWorking { .. } => {
-            let files = list_source_files(repo_root)?;
+            let files = list_source_files(repo_root, registry)?;
             Ok(GraphSource {
                 root: repo_root.to_path_buf(),
                 files,
@@ -581,7 +586,10 @@ fn graph_source_for_scope(
     }
 }
 
-fn materialize_index_source(repo_root: &Path) -> Result<GraphSource, AnalyzeError> {
+fn materialize_index_source(
+    repo_root: &Path,
+    registry: &ParserRegistry,
+) -> Result<GraphSource, AnalyzeError> {
     let repo = Repository::discover(repo_root).map_err(|e| AnalyzeError::Git(e.to_string()))?;
     let index = repo.index().map_err(|e| AnalyzeError::Git(e.to_string()))?;
     let temp_dir = TempDir::new().map_err(|e| AnalyzeError::Io(e.to_string()))?;
@@ -591,13 +599,17 @@ fn materialize_index_source(repo_root: &Path) -> Result<GraphSource, AnalyzeErro
         let Ok(path) = std::str::from_utf8(&entry.path) else {
             continue;
         };
-        if !is_source_file(path) {
+        if is_noise_file(path) {
             continue;
         }
 
         let blob = repo
             .find_blob(entry.id)
             .map_err(|e| AnalyzeError::Git(e.to_string()))?;
+        if !is_graph_supported_content(path, blob.content(), registry) {
+            continue;
+        }
+
         write_source_blob(temp_dir.path(), path, blob.content(), &mut files)?;
     }
 
@@ -608,7 +620,11 @@ fn materialize_index_source(repo_root: &Path) -> Result<GraphSource, AnalyzeErro
     })
 }
 
-fn materialize_tree_source(repo_root: &Path, refspec: &str) -> Result<GraphSource, AnalyzeError> {
+fn materialize_tree_source(
+    repo_root: &Path,
+    refspec: &str,
+    registry: &ParserRegistry,
+) -> Result<GraphSource, AnalyzeError> {
     let repo = Repository::discover(repo_root).map_err(|e| AnalyzeError::Git(e.to_string()))?;
     let object = repo
         .revparse_single(refspec)
@@ -619,7 +635,7 @@ fn materialize_tree_source(repo_root: &Path, refspec: &str) -> Result<GraphSourc
     let temp_dir = TempDir::new().map_err(|e| AnalyzeError::Io(e.to_string()))?;
     let mut files = Vec::new();
 
-    materialize_source_files(&repo, &tree, "", temp_dir.path(), &mut files)?;
+    materialize_source_files(&repo, &tree, "", temp_dir.path(), &mut files, registry)?;
 
     Ok(GraphSource {
         root: temp_dir.path().to_path_buf(),
@@ -634,6 +650,7 @@ fn materialize_source_files(
     prefix: &str,
     target_root: &Path,
     files: &mut Vec<String>,
+    registry: &ParserRegistry,
 ) -> Result<(), AnalyzeError> {
     for entry in tree.iter() {
         let name = entry
@@ -650,13 +667,15 @@ fn materialize_source_files(
                 let subtree = repo
                     .find_tree(entry.id())
                     .map_err(|e| AnalyzeError::Git(e.to_string()))?;
-                materialize_source_files(repo, &subtree, &path, target_root, files)?;
+                materialize_source_files(repo, &subtree, &path, target_root, files, registry)?;
             }
-            Some(ObjectType::Blob) if is_source_file(&path) => {
+            Some(ObjectType::Blob) if !is_noise_file(&path) => {
                 let blob = repo
                     .find_blob(entry.id())
                     .map_err(|e| AnalyzeError::Git(e.to_string()))?;
-                write_source_blob(target_root, &path, blob.content(), files)?;
+                if is_graph_supported_content(&path, blob.content(), registry) {
+                    write_source_blob(target_root, &path, blob.content(), files)?;
+                }
             }
             _ => {}
         }
@@ -680,8 +699,11 @@ fn write_source_blob(
     Ok(())
 }
 
-/// List all tracked source files in the repo via `git ls-files`.
-fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
+/// List all tracked files supported by the parser registry via `git ls-files`.
+fn list_source_files(
+    repo_path: &Path,
+    registry: &ParserRegistry,
+) -> Result<Vec<String>, AnalyzeError> {
     let output = std::process::Command::new("git")
         .args(["ls-files"])
         .current_dir(repo_path)
@@ -696,28 +718,78 @@ fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
     let files: Vec<String> = stdout
         .lines()
         .filter(|f| !is_noise_file(f))
-        .filter(|f| is_source_file(f))
+        .filter(|f| is_graph_supported_file(repo_path, f, registry))
         .map(|s| s.to_string())
         .collect();
 
     Ok(files)
 }
 
-fn is_source_file(path: &str) -> bool {
-    let path = path.to_lowercase();
-    path.ends_with(".rs")
-        || path.ends_with(".ts")
-        || path.ends_with(".tsx")
-        || path.ends_with(".js")
-        || path.ends_with(".jsx")
-        || path.ends_with(".py")
-        || path.ends_with(".go")
-        || path.ends_with(".java")
-        || path.ends_with(".c")
-        || path.ends_with(".cpp")
-        || path.ends_with(".rb")
-        || path.ends_with(".cs")
-        || path.ends_with(".php")
+fn is_graph_supported_file(repo_path: &Path, file_path: &str, registry: &ParserRegistry) -> bool {
+    if registry
+        .get_plugin(file_path)
+        .is_some_and(|plugin| plugin.id() != "fallback")
+    {
+        return true;
+    }
+
+    let Some(content) = read_content_detection_sample(&repo_path.join(file_path)) else {
+        return false;
+    };
+
+    registry
+        .get_plugin_with_content(file_path, &content)
+        .is_some_and(|plugin| plugin.id() != "fallback")
+}
+
+fn is_graph_supported_content(file_path: &str, content: &[u8], registry: &ParserRegistry) -> bool {
+    if registry
+        .get_plugin(file_path)
+        .is_some_and(|plugin| plugin.id() != "fallback")
+    {
+        return true;
+    }
+
+    let content = content_detection_sample_from_bytes(content);
+    registry
+        .get_plugin_with_content(file_path, &content)
+        .is_some_and(|plugin| plugin.id() != "fallback")
+}
+
+fn content_detection_sample_from_bytes(content: &[u8]) -> String {
+    let sample_bytes = CONTENT_DETECTION_SAMPLE_BYTES * 2;
+    if content.len() <= sample_bytes {
+        return String::from_utf8_lossy(content).into_owned();
+    }
+
+    let mut bytes = Vec::with_capacity(sample_bytes + 1);
+    bytes.extend_from_slice(&content[..CONTENT_DETECTION_SAMPLE_BYTES]);
+    bytes.push(b'\n');
+    bytes.extend_from_slice(&content[content.len() - CONTENT_DETECTION_SAMPLE_BYTES..]);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn read_content_detection_sample(path: &Path) -> Option<String> {
+    let file_len = std::fs::metadata(path).ok()?.len();
+    if file_len <= (CONTENT_DETECTION_SAMPLE_BYTES * 2) as u64 {
+        return std::fs::read_to_string(path).ok();
+    }
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::with_capacity(CONTENT_DETECTION_SAMPLE_BYTES * 2 + 1);
+
+    let mut head = vec![0; CONTENT_DETECTION_SAMPLE_BYTES];
+    let head_len = file.read(&mut head).ok()?;
+    bytes.extend_from_slice(&head[..head_len]);
+    bytes.push(b'\n');
+
+    file.seek(SeekFrom::End(-(CONTENT_DETECTION_SAMPLE_BYTES as i64)))
+        .ok()?;
+    let mut tail = vec![0; CONTENT_DETECTION_SAMPLE_BYTES];
+    let tail_len = file.read(&mut tail).ok()?;
+    bytes.extend_from_slice(&tail[..tail_len]);
+
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn empty_result() -> ReviewResult {
@@ -1280,13 +1352,14 @@ mod tests {
             changes: vec![],
         };
 
-        retain_entity_reviews(&mut result, |review| {
-            review.risk_level >= RiskLevel::High
-        });
+        retain_entity_reviews(&mut result, |review| review.risk_level >= RiskLevel::High);
 
         assert_eq!(result.entity_reviews.len(), 2);
         assert_eq!(result.groups.len(), 2);
-        assert!(result.groups.iter().all(|group| group.entity_ids.len() == 1));
+        assert!(result
+            .groups
+            .iter()
+            .all(|group| group.entity_ids.len() == 1));
         assert_ne!(
             result.entity_reviews[0].group_id,
             result.entity_reviews[1].group_id
@@ -1333,12 +1406,150 @@ mod tests {
         retain_entity_reviews(&mut result, |review| review.entity_id != "main.rs::four");
         assert_eq!(result.dependency_edges.len(), 2);
 
-        retain_entity_reviews(&mut result, |review| {
-            review.risk_level >= RiskLevel::High
-        });
+        retain_entity_reviews(&mut result, |review| review.risk_level >= RiskLevel::High);
 
         assert_eq!(result.entity_reviews.len(), 2);
         assert_eq!(result.groups.len(), 2);
         assert!(result.dependency_edges.is_empty());
+    }
+
+    #[test]
+    fn analyze_builds_graph_for_swift_and_hcl() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(
+            dir.join("Example.swift"),
+            r#"public func greet(_ name: String) -> String {
+    return "hello \(name)"
+}
+
+public func caller() -> String {
+    return greet("world")
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("main.tf"),
+            r#"resource "example_service" "demo" {
+  name = "demo"
+}
+"#,
+        )
+        .unwrap();
+        commit(dir, "init");
+
+        std::fs::write(
+            dir.join("Example.swift"),
+            r#"public func greet(_ name: String) -> String {
+    return "hi \(name)"
+}
+
+public func caller() -> String {
+    return greet("world")
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("main.tf"),
+            r#"resource "example_service" "demo" {
+  name = "demo2"
+}
+"#,
+        )
+        .unwrap();
+        commit(dir, "change");
+
+        let result = analyze(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.timing.file_count, 2);
+        assert!(result.timing.graph_entity_count >= 2);
+
+        let swift = result
+            .entity_reviews
+            .iter()
+            .find(|review| review.file_path == "Example.swift" && review.entity_name == "greet")
+            .expect("Swift function change should be reviewed");
+        assert!(swift.start_line > 0);
+        assert!(swift.end_line >= swift.start_line);
+        assert_eq!(swift.dependent_count, 1);
+        assert!(swift
+            .dependent_names
+            .iter()
+            .any(|(name, file_path)| name == "caller" && file_path == "Example.swift"));
+
+        let hcl = result
+            .entity_reviews
+            .iter()
+            .find(|review| review.file_path == "main.tf")
+            .expect("HCL block change should be reviewed");
+        assert!(hcl.start_line > 0);
+        assert!(hcl.end_line >= hcl.start_line);
+    }
+
+    #[test]
+    fn analyze_builds_graph_for_content_detected_files() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(
+            dir.join("runner"),
+            r#"#!/usr/bin/env python3
+def greet(name):
+    return f"hello {name}"
+
+def caller():
+    return greet("world")
+"#,
+        )
+        .unwrap();
+        commit(dir, "init");
+
+        std::fs::write(
+            dir.join("runner"),
+            r#"#!/usr/bin/env python3
+def greet(name):
+    return f"hi {name}"
+
+def caller():
+    return greet("world")
+"#,
+        )
+        .unwrap();
+        commit(dir, "change");
+
+        let result = analyze(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.timing.file_count, 1);
+        assert!(result.timing.graph_entity_count >= 2);
+
+        let review = result
+            .entity_reviews
+            .iter()
+            .find(|review| review.file_path == "runner" && review.entity_name == "greet")
+            .expect("content-detected Python function change should be reviewed");
+        assert!(review.start_line > 0);
+        assert!(review.end_line >= review.start_line);
+        assert_eq!(review.dependent_count, 1);
+        assert!(review
+            .dependent_names
+            .iter()
+            .any(|(name, file_path)| name == "caller" && file_path == "runner"));
     }
 }
