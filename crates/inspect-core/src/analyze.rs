@@ -4,10 +4,11 @@ use std::path::Path;
 use git2::{ObjectType, Repository, Tree};
 use sem_core::git::bridge::GitBridge;
 use sem_core::git::types::{DiffScope, FileChange, FileStatus};
-use sem_core::model::change::ChangeType;
+use sem_core::model::change::{ChangeType, SemanticChange};
 use sem_core::parser::differ::compute_semantic_diff;
 use sem_core::parser::graph::EntityGraph;
 use sem_core::parser::plugins::create_default_registry;
+use sem_core::parser::registry::ParserRegistry;
 use tempfile::TempDir;
 
 use crate::classify::classify_change;
@@ -37,6 +38,33 @@ impl Default for AnalyzeOptions {
     }
 }
 
+/// Reusable repository-wide graph data for repeated analysis.
+pub struct AnalysisGraph {
+    graph: EntityGraph,
+    total_graph_entities: usize,
+    list_files_ms: u64,
+    file_count: usize,
+    graph_build_ms: u64,
+}
+
+impl AnalysisGraph {
+    pub fn total_graph_entities(&self) -> usize {
+        self.total_graph_entities
+    }
+
+    pub fn list_files_ms(&self) -> u64 {
+        self.list_files_ms
+    }
+
+    pub fn file_count(&self) -> usize {
+        self.file_count
+    }
+
+    pub fn graph_build_ms(&self) -> u64 {
+        self.graph_build_ms
+    }
+}
+
 /// Shared context from Phases 1-3: diff, file listing, graph build.
 /// Used by both analyze and predict.
 pub(crate) struct AnalysisContext {
@@ -52,6 +80,21 @@ pub(crate) struct AnalysisContext {
     pub graph_build_ms: u64,
 }
 
+struct ChangeContext {
+    changes: Vec<SemanticChange>,
+    changed_entity_ids: HashSet<String>,
+    diff_ms: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ContextTiming {
+    diff_ms: u64,
+    list_files_ms: u64,
+    file_count: usize,
+    graph_build_ms: u64,
+    total_graph_entities: usize,
+}
+
 /// Run Phases 1-3: entity diff, file listing, graph build.
 /// Returns None if there are no changes.
 pub(crate) fn build_context(
@@ -63,8 +106,54 @@ pub(crate) fn build_context(
     let git = GitBridge::open(repo_path).map_err(|e| AnalyzeError::Git(e.to_string()))?;
     let registry = create_default_registry();
 
+    let changes = match build_change_context(&git, &registry, &scope)? {
+        Some(changes) => changes,
+        None => return Ok(None),
+    };
+
+    // Phase 2: List all source files in the graph source tree
+    let list_start = Instant::now();
+    let graph_source = graph_source_for_scope(git.repo_root(), &scope)?;
+    let list_files_ms = list_start.elapsed().as_millis() as u64;
+    let file_count = graph_source.files.len();
+
+    let graph = build_analysis_graph_from_files(
+        &graph_source.root,
+        &graph_source.files,
+        &registry,
+        list_files_ms,
+    );
+
+    Ok(Some(AnalysisContext {
+        graph: graph.graph,
+        source_root: graph_source.root,
+        _source_tree: graph_source.temp_dir,
+        changes: changes.changes,
+        changed_entity_ids: changes.changed_entity_ids,
+        total_graph_entities: graph.total_graph_entities,
+        diff_ms: changes.diff_ms,
+        list_files_ms,
+        file_count,
+        graph_build_ms: graph.graph_build_ms,
+    }))
+}
+
+/// Build a reusable repository graph for repeated analysis over a stable checkout.
+pub fn build_analysis_graph(repo_path: &Path) -> Result<AnalysisGraph, AnalyzeError> {
+    let git = GitBridge::open(repo_path).map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let registry = create_default_registry();
+    build_analysis_graph_with_git(&git, &registry)
+}
+
+fn build_change_context(
+    git: &GitBridge,
+    registry: &ParserRegistry,
+    scope: &DiffScope,
+) -> Result<Option<ChangeContext>, AnalyzeError> {
+    use std::time::Instant;
+
     let file_changes: Vec<FileChange> = git
-        .get_changed_files(&scope, &[])
+        .get_changed_files(scope, &[])
         .map_err(|e| AnalyzeError::Git(e.to_string()))?
         .into_iter()
         .filter(|change| !is_noise_file(&change.file_path))
@@ -76,41 +165,65 @@ pub(crate) fn build_context(
 
     // Phase 1: Compute entity-level diff
     let diff_start = Instant::now();
-    let diff = compute_semantic_diff(&file_changes, &registry, None, None);
+    let diff = compute_semantic_diff(&file_changes, registry, None, None);
     let diff_ms = diff_start.elapsed().as_millis() as u64;
 
     if diff.changes.is_empty() {
         return Ok(None);
     }
 
-    // Phase 2: List all source files in the graph source tree
-    let list_start = Instant::now();
-    let graph_source = graph_source_for_scope(git.repo_root(), &scope)?;
-    let all_files = graph_source.files;
-    let file_count = all_files.len();
-    let list_files_ms = list_start.elapsed().as_millis() as u64;
-
     let changed_entity_ids: HashSet<String> =
         diff.changes.iter().map(|c| c.entity_id.clone()).collect();
 
+    Ok(Some(ChangeContext {
+        changes: diff.changes,
+        changed_entity_ids,
+        diff_ms,
+    }))
+}
+
+fn build_analysis_graph_with_git(
+    git: &GitBridge,
+    registry: &ParserRegistry,
+) -> Result<AnalysisGraph, AnalyzeError> {
+    use std::time::Instant;
+
+    // Phase 2: List all source files in the repo
+    let list_start = Instant::now();
+    let all_files = list_source_files(git.repo_root())?;
+    let list_files_ms = list_start.elapsed().as_millis() as u64;
+
+    Ok(build_analysis_graph_from_files(
+        git.repo_root(),
+        &all_files,
+        registry,
+        list_files_ms,
+    ))
+}
+
+fn build_analysis_graph_from_files(
+    source_root: &Path,
+    all_files: &[String],
+    registry: &ParserRegistry,
+    list_files_ms: u64,
+) -> AnalysisGraph {
+    use std::time::Instant;
+
+    let file_count = all_files.len();
+
     // Phase 3: Build entity graph from ALL source files (parallel via rayon)
     let graph_start = Instant::now();
-    let (graph, _all_entities) = EntityGraph::build(&graph_source.root, &all_files, &registry);
+    let (graph, _all_entities) = EntityGraph::build(source_root, all_files, registry);
     let graph_build_ms = graph_start.elapsed().as_millis() as u64;
     let total_graph_entities = graph.entities.len();
 
-    Ok(Some(AnalysisContext {
+    AnalysisGraph {
         graph,
-        source_root: graph_source.root,
-        _source_tree: graph_source.temp_dir,
-        changes: diff.changes,
-        changed_entity_ids,
         total_graph_entities,
-        diff_ms,
         list_files_ms,
         file_count,
         graph_build_ms,
-    }))
+    }
 }
 
 /// Analyze a diff scope and produce a ReviewResult.
@@ -146,8 +259,84 @@ pub fn analyze_with_options(
         _source_tree,
     } = ctx;
 
+    Ok(analyze_changes_with_graph(
+        &source_root,
+        &graph,
+        changes,
+        changed_entity_ids,
+        ContextTiming {
+            diff_ms,
+            list_files_ms,
+            file_count,
+            graph_build_ms,
+            total_graph_entities,
+        },
+        options,
+        total_start,
+    ))
+}
+
+/// Analyze with a prebuilt repository graph.
+///
+/// Timing only includes per-analysis work. `list_files_ms` and `graph_build_ms`
+/// are zero because the caller paid those costs when building `AnalysisGraph`.
+pub fn analyze_with_graph(
+    repo_path: &Path,
+    scope: DiffScope,
+    graph: &AnalysisGraph,
+) -> Result<ReviewResult, AnalyzeError> {
+    analyze_with_options_and_graph(repo_path, scope, &AnalyzeOptions::default(), graph)
+}
+
+/// Analyze with configurable options and a prebuilt repository graph.
+///
+/// Timing only includes per-analysis work. `list_files_ms` and `graph_build_ms`
+/// are zero because the caller paid those costs when building `AnalysisGraph`.
+pub fn analyze_with_options_and_graph(
+    repo_path: &Path,
+    scope: DiffScope,
+    options: &AnalyzeOptions,
+    graph: &AnalysisGraph,
+) -> Result<ReviewResult, AnalyzeError> {
+    use std::time::Instant;
+
+    let total_start = Instant::now();
+    let git = GitBridge::open(repo_path).map_err(|e| AnalyzeError::Git(e.to_string()))?;
+    let registry = create_default_registry();
+
+    let changes = match build_change_context(&git, &registry, &scope)? {
+        Some(changes) => changes,
+        None => return Ok(empty_result()),
+    };
+
+    Ok(analyze_changes_with_graph(
+        repo_path,
+        &graph.graph,
+        changes.changes,
+        changes.changed_entity_ids,
+        ContextTiming {
+            diff_ms: changes.diff_ms,
+            list_files_ms: 0,
+            file_count: graph.file_count,
+            graph_build_ms: 0,
+            total_graph_entities: graph.total_graph_entities,
+        },
+        options,
+        total_start,
+    ))
+}
+
+fn analyze_changes_with_graph(
+    source_root: &Path,
+    graph: &EntityGraph,
+    changes: Vec<SemanticChange>,
+    changed_entity_ids: HashSet<String>,
+    timing: ContextTiming,
+    options: &AnalyzeOptions,
+    total_start: std::time::Instant,
+) -> ReviewResult {
     // Phase 4: Score, classify, untangle
-    let scoring_start = Instant::now();
+    let scoring_start = std::time::Instant::now();
 
     let mut reviews: Vec<EntityReview> = Vec::new();
     let mut dependency_edges: Vec<(String, String)> = Vec::new();
@@ -201,7 +390,7 @@ pub fn analyze_with_options(
             dependent_entities: vec![],
         };
 
-        review.risk_score = compute_risk_score(&review, total_graph_entities);
+        review.risk_score = compute_risk_score(&review, timing.total_graph_entities);
         review.risk_level = score_to_level(review.risk_score);
 
         for dep in &dependencies {
@@ -222,7 +411,7 @@ pub fn analyze_with_options(
     if options.include_dependent_code {
         for review in &mut reviews {
             review.dependent_entities =
-                collect_dependent_code(&graph, &review.entity_id, &source_root, options);
+                collect_dependent_code(&graph, &review.entity_id, source_root, options);
         }
     }
 
@@ -247,23 +436,23 @@ pub fn analyze_with_options(
     let stats = compute_stats(&reviews);
 
     let timing = Timing {
-        diff_ms,
-        list_files_ms,
-        file_count,
-        graph_build_ms,
-        graph_entity_count: total_graph_entities,
+        diff_ms: timing.diff_ms,
+        list_files_ms: timing.list_files_ms,
+        file_count: timing.file_count,
+        graph_build_ms: timing.graph_build_ms,
+        graph_entity_count: timing.total_graph_entities,
         scoring_ms,
         total_ms,
     };
 
-    Ok(ReviewResult {
+    ReviewResult {
         entity_reviews: reviews,
         groups,
         stats,
         timing,
         dependency_edges,
         changes,
-    })
+    }
 }
 
 /// Analyze file pairs fetched from a remote source (e.g. GitHub API).
@@ -1081,6 +1270,82 @@ mod tests {
     }
 
     #[test]
+    fn analyze_with_reusable_graph_skips_per_commit_graph_build() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(
+            dir.join("main.rs"),
+            "fn helper() -> &'static str {\n    \"old\"\n}\n\nfn caller() -> &'static str {\n    helper()\n}\n",
+        )
+        .unwrap();
+        commit(dir, "init");
+
+        std::fs::write(
+            dir.join("main.rs"),
+            "fn helper() -> &'static str {\n    \"new\"\n}\n\nfn caller() -> &'static str {\n    helper()\n}\n",
+        )
+        .unwrap();
+        commit(dir, "change helper");
+
+        let expected = analyze(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+        )
+        .unwrap();
+
+        let graph = build_analysis_graph(dir).unwrap();
+        let result = analyze_with_graph(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+            &graph,
+        )
+        .unwrap();
+
+        assert!(!result.entity_reviews.is_empty());
+        assert_eq!(result.entity_reviews.len(), expected.entity_reviews.len());
+        assert_eq!(result.groups.len(), expected.groups.len());
+        assert_eq!(result.stats.total_entities, expected.stats.total_entities);
+
+        for (actual, expected) in result.entity_reviews.iter().zip(&expected.entity_reviews) {
+            assert_eq!(actual.entity_id, expected.entity_id);
+            assert_eq!(actual.entity_name, expected.entity_name);
+            assert_eq!(actual.entity_type, expected.entity_type);
+            assert_eq!(actual.file_path, expected.file_path);
+            assert_eq!(actual.change_type, expected.change_type);
+            assert_eq!(actual.classification, expected.classification);
+            assert_eq!(actual.risk_level, expected.risk_level);
+            assert_eq!(actual.risk_score, expected.risk_score);
+            assert_eq!(actual.blast_radius, expected.blast_radius);
+            assert_eq!(actual.dependent_count, expected.dependent_count);
+            assert_eq!(actual.dependency_count, expected.dependency_count);
+            assert_eq!(actual.group_id, expected.group_id);
+            assert_eq!(actual.start_line, expected.start_line);
+            assert_eq!(actual.end_line, expected.end_line);
+            assert_eq!(actual.dependent_names, expected.dependent_names);
+            assert_eq!(actual.dependency_names, expected.dependency_names);
+        }
+
+        for (actual, expected) in result.groups.iter().zip(&expected.groups) {
+            assert_eq!(actual.label, expected.label);
+            assert_eq!(actual.entity_ids, expected.entity_ids);
+        }
+
+        assert_eq!(result.timing.list_files_ms, 0);
+        assert_eq!(result.timing.graph_build_ms, 0);
+        assert_eq!(result.timing.file_count, graph.file_count());
+        assert_eq!(
+            result.timing.graph_entity_count,
+            graph.total_graph_entities()
+        );
+    }
+
+    #[test]
     fn analyze_empty_diff() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
@@ -1280,13 +1545,14 @@ mod tests {
             changes: vec![],
         };
 
-        retain_entity_reviews(&mut result, |review| {
-            review.risk_level >= RiskLevel::High
-        });
+        retain_entity_reviews(&mut result, |review| review.risk_level >= RiskLevel::High);
 
         assert_eq!(result.entity_reviews.len(), 2);
         assert_eq!(result.groups.len(), 2);
-        assert!(result.groups.iter().all(|group| group.entity_ids.len() == 1));
+        assert!(result
+            .groups
+            .iter()
+            .all(|group| group.entity_ids.len() == 1));
         assert_ne!(
             result.entity_reviews[0].group_id,
             result.entity_reviews[1].group_id
@@ -1333,9 +1599,7 @@ mod tests {
         retain_entity_reviews(&mut result, |review| review.entity_id != "main.rs::four");
         assert_eq!(result.dependency_edges.len(), 2);
 
-        retain_entity_reviews(&mut result, |review| {
-            review.risk_level >= RiskLevel::High
-        });
+        retain_entity_reviews(&mut result, |review| review.risk_level >= RiskLevel::High);
 
         assert_eq!(result.entity_reviews.len(), 2);
         assert_eq!(result.groups.len(), 2);

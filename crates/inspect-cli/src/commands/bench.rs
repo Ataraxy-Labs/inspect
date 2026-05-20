@@ -5,7 +5,7 @@ use std::process::Command;
 use clap::Args;
 use sem_core::git::types::DiffScope;
 
-use inspect_core::analyze::analyze;
+use inspect_core::analyze::{analyze_with_graph, build_analysis_graph};
 use inspect_core::types::RiskLevel;
 
 use serde::Serialize;
@@ -27,6 +27,10 @@ pub struct BenchmarkResult {
     pub total_commits: usize,
     pub analyzed_commits: usize,
     pub total_entities_reviewed: usize,
+    pub graph_file_count: usize,
+    pub graph_entity_count: usize,
+    pub graph_list_files_ms: u64,
+    pub graph_build_ms: u64,
     // Noise reduction
     pub cosmetic_ratio: f64,
     pub noise_reduction: f64,
@@ -76,7 +80,11 @@ pub fn run(args: BenchArgs) {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| repo.display().to_string());
 
-    eprintln!("inspect bench: analyzing {} (limit: {})", repo.display(), args.limit);
+    eprintln!(
+        "inspect bench: analyzing {} (limit: {})",
+        repo.display(),
+        args.limit
+    );
 
     // Get commit SHAs
     let output = Command::new("git")
@@ -100,6 +108,22 @@ pub fn run(args: BenchArgs) {
     }
 
     eprintln!("found {} commits", commits_info.len());
+
+    eprintln!("building reusable entity graph...");
+    let graph = match build_analysis_graph(&repo) {
+        Ok(graph) => graph,
+        Err(e) => {
+            eprintln!("error: failed to build entity graph: {}", e);
+            std::process::exit(1);
+        }
+    };
+    eprintln!(
+        "built graph: {} files, {} entities (list: {}ms, build: {}ms)",
+        graph.file_count(),
+        graph.total_graph_entities(),
+        graph.list_files_ms(),
+        graph.graph_build_ms()
+    );
 
     let mut commit_benchmarks: Vec<CommitBenchmark> = Vec::new();
     let mut total_entities = 0usize;
@@ -125,7 +149,7 @@ pub fn run(args: BenchArgs) {
             sha: sha.to_string(),
         };
 
-        match analyze(&repo, scope) {
+        match analyze_with_graph(&repo, scope, &graph) {
             Ok(result) => {
                 if result.entity_reviews.is_empty() {
                     continue;
@@ -283,6 +307,10 @@ pub fn run(args: BenchArgs) {
         total_commits: commits_info.len(),
         analyzed_commits: analyzed,
         total_entities_reviewed: total_entities,
+        graph_file_count: graph.file_count(),
+        graph_entity_count: graph.total_graph_entities(),
+        graph_list_files_ms: graph.list_files_ms(),
+        graph_build_ms: graph.graph_build_ms(),
         cosmetic_ratio,
         noise_reduction,
         avg_entities_per_file,
