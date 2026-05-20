@@ -172,6 +172,9 @@ pub struct ReviewResult {
     pub groups: Vec<ChangeGroup>,
     pub stats: ReviewStats,
     pub timing: Timing,
+    /// Dependency edges between changed entities, used to recompute groups after filtering.
+    #[serde(skip)]
+    pub dependency_edges: Vec<(String, String)>,
     /// The underlying semantic changes (for formatters that want raw data)
     #[serde(skip)]
     pub changes: Vec<SemanticChange>,

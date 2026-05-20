@@ -6,7 +6,7 @@ use sem_core::git::types::DiffScope;
 
 use crate::formatters;
 use crate::OutputFormat;
-use inspect_core::analyze::{analyze, analyze_remote};
+use inspect_core::analyze::{analyze, analyze_remote, retain_entity_reviews};
 use inspect_core::github::GitHubClient;
 use inspect_core::noise::is_noise_file;
 use inspect_core::types::RiskLevel;
@@ -146,10 +146,7 @@ async fn run_remote(args: &PrArgs, remote_repo: &str) {
     }
 }
 
-fn apply_filters_and_print(
-    result: &mut inspect_core::types::ReviewResult,
-    args: &PrArgs,
-) {
+fn apply_filters_and_print(result: &mut inspect_core::types::ReviewResult, args: &PrArgs) {
     if let Some(ref min) = args.min_risk {
         let min_level = match min.to_lowercase().as_str() {
             "critical" => RiskLevel::Critical,
@@ -157,7 +154,7 @@ fn apply_filters_and_print(
             "medium" => RiskLevel::Medium,
             _ => RiskLevel::Low,
         };
-        result.entity_reviews.retain(|r| r.risk_level >= min_level);
+        retain_entity_reviews(result, |r| r.risk_level >= min_level);
     }
 
     match args.format {

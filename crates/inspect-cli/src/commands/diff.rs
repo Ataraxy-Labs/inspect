@@ -5,7 +5,7 @@ use sem_core::git::types::DiffScope;
 
 use crate::formatters;
 use crate::OutputFormat;
-use inspect_core::analyze::{analyze_with_options, AnalyzeOptions};
+use inspect_core::analyze::{analyze_with_options, retain_entity_reviews, AnalyzeOptions};
 use inspect_core::types::RiskLevel;
 
 #[derive(Args)]
@@ -48,7 +48,7 @@ pub fn run(args: DiffArgs) {
             // Filter by min risk if specified
             if let Some(ref min) = args.min_risk {
                 let min_level = parse_risk_level(min);
-                result.entity_reviews.retain(|r| r.risk_level >= min_level);
+                retain_entity_reviews(&mut result, |r| r.risk_level >= min_level);
             }
 
             match args.format {

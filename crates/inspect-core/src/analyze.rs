@@ -252,6 +252,7 @@ pub fn analyze_with_options(
         groups,
         stats,
         timing,
+        dependency_edges,
         changes,
     })
 }
@@ -372,6 +373,7 @@ pub fn analyze_remote(file_pairs: &[FilePair]) -> Result<ReviewResult, AnalyzeEr
         groups,
         stats,
         timing,
+        dependency_edges: vec![],
         changes: diff.changes,
     })
 }
@@ -426,6 +428,46 @@ pub(crate) fn compute_stats(reviews: &[EntityReview]) -> ReviewStats {
         by_classification: by_classification,
         by_change_type: by_change,
     }
+}
+
+/// Retain entity reviews and keep derived result summaries in sync.
+pub fn retain_entity_reviews<F>(result: &mut ReviewResult, mut keep: F)
+where
+    F: FnMut(&EntityReview) -> bool,
+{
+    result.entity_reviews.retain(|review| keep(review));
+    refresh_result_summaries(result);
+}
+
+fn refresh_result_summaries(result: &mut ReviewResult) {
+    let remaining_ids: HashSet<String> = result
+        .entity_reviews
+        .iter()
+        .map(|review| review.entity_id.clone())
+        .collect();
+
+    let dependency_edges: Vec<(String, String)> = result
+        .dependency_edges
+        .iter()
+        .filter(|(from, to)| remaining_ids.contains(from) && remaining_ids.contains(to))
+        .cloned()
+        .collect();
+
+    let groups = untangle(&result.entity_reviews, &dependency_edges);
+    let entity_to_group: HashMap<&str, usize> = groups
+        .iter()
+        .flat_map(|g| g.entity_ids.iter().map(move |id| (id.as_str(), g.id)))
+        .collect();
+
+    for review in &mut result.entity_reviews {
+        if let Some(&gid) = entity_to_group.get(review.entity_id.as_str()) {
+            review.group_id = gid;
+        }
+    }
+
+    result.groups = groups;
+    result.stats = compute_stats(&result.entity_reviews);
+    result.dependency_edges = dependency_edges;
 }
 
 /// Collect full source code of the top dependent entities for a changed entity.
@@ -568,6 +610,7 @@ fn empty_result() -> ReviewResult {
             },
         },
         timing: Timing::default(),
+        dependency_edges: vec![],
         changes: vec![],
     }
 }
@@ -583,6 +626,32 @@ mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::TempDir;
+
+    fn make_review(id: &str, name: &str, risk_level: RiskLevel) -> EntityReview {
+        EntityReview {
+            entity_id: id.into(),
+            entity_name: name.into(),
+            entity_type: "function".into(),
+            file_path: "main.rs".into(),
+            change_type: ChangeType::Modified,
+            classification: ChangeClassification::Functional,
+            risk_score: 0.5,
+            risk_level,
+            blast_radius: 0,
+            dependent_count: 0,
+            dependency_count: 0,
+            is_public_api: false,
+            structural_change: None,
+            group_id: 0,
+            start_line: 1,
+            end_line: 1,
+            before_content: None,
+            after_content: None,
+            dependent_names: vec![],
+            dependency_names: vec![],
+            dependent_entities: vec![],
+        }
+    }
 
     fn init_repo(dir: &Path) {
         Command::new("git")
@@ -758,5 +827,150 @@ mod tests {
             .entity_reviews
             .iter()
             .all(|review| review.file_path == "main.rs"));
+    }
+
+    #[test]
+    fn retain_entity_reviews_recomputes_stats_and_groups() {
+        let mut result = ReviewResult {
+            entity_reviews: vec![
+                make_review("main.rs::one", "one", RiskLevel::High),
+                make_review("main.rs::two", "two", RiskLevel::Medium),
+            ],
+            groups: vec![ChangeGroup {
+                id: 0,
+                label: "main.rs".into(),
+                entity_ids: vec!["main.rs::one".into(), "main.rs::two".into()],
+            }],
+            stats: compute_stats(&[]),
+            timing: Timing::default(),
+            dependency_edges: vec![("main.rs::one".into(), "main.rs::two".into())],
+            changes: vec![],
+        };
+
+        retain_entity_reviews(&mut result, |review| {
+            review.risk_level >= RiskLevel::Critical
+        });
+
+        assert!(result.entity_reviews.is_empty());
+        assert!(result.groups.is_empty());
+        assert_eq!(result.stats.total_entities, 0);
+        assert_eq!(result.stats.by_risk.high, 0);
+    }
+
+    #[test]
+    fn retain_entity_reviews_updates_remaining_group_ids() {
+        let mut result = ReviewResult {
+            entity_reviews: vec![
+                make_review("main.rs::one", "one", RiskLevel::High),
+                make_review("main.rs::two", "two", RiskLevel::Medium),
+            ],
+            groups: vec![ChangeGroup {
+                id: 0,
+                label: "main.rs".into(),
+                entity_ids: vec!["main.rs::one".into(), "main.rs::two".into()],
+            }],
+            stats: compute_stats(&[]),
+            timing: Timing::default(),
+            dependency_edges: vec![("main.rs::one".into(), "main.rs::two".into())],
+            changes: vec![],
+        };
+
+        retain_entity_reviews(&mut result, |review| review.entity_id == "main.rs::two");
+
+        assert_eq!(result.entity_reviews.len(), 1);
+        assert_eq!(result.entity_reviews[0].group_id, 0);
+        assert_eq!(result.groups.len(), 1);
+        assert_eq!(result.groups[0].entity_ids, vec!["main.rs::two"]);
+        assert_eq!(result.groups[0].label, "two");
+        assert_eq!(result.stats.total_entities, 1);
+        assert_eq!(result.stats.by_risk.medium, 1);
+    }
+
+    #[test]
+    fn retain_entity_reviews_drops_removed_bridge_edges() {
+        let mut result = ReviewResult {
+            entity_reviews: vec![
+                make_review("main.rs::one", "one", RiskLevel::High),
+                make_review("main.rs::two", "two", RiskLevel::Medium),
+                make_review("main.rs::three", "three", RiskLevel::High),
+            ],
+            groups: vec![ChangeGroup {
+                id: 0,
+                label: "main.rs".into(),
+                entity_ids: vec![
+                    "main.rs::one".into(),
+                    "main.rs::two".into(),
+                    "main.rs::three".into(),
+                ],
+            }],
+            stats: compute_stats(&[]),
+            timing: Timing::default(),
+            dependency_edges: vec![
+                ("main.rs::one".into(), "main.rs::two".into()),
+                ("main.rs::two".into(), "main.rs::three".into()),
+            ],
+            changes: vec![],
+        };
+
+        retain_entity_reviews(&mut result, |review| {
+            review.risk_level >= RiskLevel::High
+        });
+
+        assert_eq!(result.entity_reviews.len(), 2);
+        assert_eq!(result.groups.len(), 2);
+        assert!(result.groups.iter().all(|group| group.entity_ids.len() == 1));
+        assert_ne!(
+            result.entity_reviews[0].group_id,
+            result.entity_reviews[1].group_id
+        );
+        assert!(result.dependency_edges.is_empty());
+        assert_eq!(result.stats.total_entities, 2);
+        assert_eq!(result.stats.by_risk.high, 2);
+    }
+
+    #[test]
+    fn retain_entity_reviews_supports_sequential_filters() {
+        let mut result = ReviewResult {
+            entity_reviews: vec![
+                make_review("main.rs::one", "one", RiskLevel::High),
+                make_review("main.rs::two", "two", RiskLevel::Medium),
+                make_review("main.rs::three", "three", RiskLevel::High),
+                make_review("main.rs::four", "four", RiskLevel::Low),
+            ],
+            groups: vec![
+                ChangeGroup {
+                    id: 0,
+                    label: "main.rs".into(),
+                    entity_ids: vec![
+                        "main.rs::one".into(),
+                        "main.rs::two".into(),
+                        "main.rs::three".into(),
+                    ],
+                },
+                ChangeGroup {
+                    id: 1,
+                    label: "four".into(),
+                    entity_ids: vec!["main.rs::four".into()],
+                },
+            ],
+            stats: compute_stats(&[]),
+            timing: Timing::default(),
+            dependency_edges: vec![
+                ("main.rs::one".into(), "main.rs::two".into()),
+                ("main.rs::two".into(), "main.rs::three".into()),
+            ],
+            changes: vec![],
+        };
+
+        retain_entity_reviews(&mut result, |review| review.entity_id != "main.rs::four");
+        assert_eq!(result.dependency_edges.len(), 2);
+
+        retain_entity_reviews(&mut result, |review| {
+            review.risk_level >= RiskLevel::High
+        });
+
+        assert_eq!(result.entity_reviews.len(), 2);
+        assert_eq!(result.groups.len(), 2);
+        assert!(result.dependency_edges.is_empty());
     }
 }
