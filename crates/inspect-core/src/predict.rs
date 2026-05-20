@@ -2,7 +2,7 @@ use std::path::Path;
 
 use sem_core::git::types::DiffScope;
 
-use crate::analyze::{build_context, AnalyzeError};
+use crate::analyze::{build_context, read_file_from_source, AnalyzeError};
 use crate::classify::classify_change;
 use crate::risk::{is_public_api, predict_risk_score, score_to_level};
 use crate::types::*;
@@ -42,7 +42,7 @@ pub fn predict_with_options(
 
     let total_start = Instant::now();
 
-    let ctx = match build_context(repo_path, scope)? {
+    let ctx = match build_context(repo_path, scope, false)? {
         Some(ctx) => ctx,
         None => {
             return Ok(PredictResult {
@@ -95,11 +95,11 @@ pub fn predict_with_options(
                 continue;
             }
 
-            // Read source from the same tree used to build the graph.
-            let file_content = match std::fs::read_to_string(ctx.source_root.join(&dep.file_path)) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
+            let file_content =
+                match read_file_from_source(repo_path, &ctx.after_source, &dep.file_path) {
+                    Some(c) => c,
+                    None => continue,
+                };
             let lines: Vec<&str> = file_content.lines().collect();
             let start = dep.start_line.saturating_sub(1);
             let end = dep.end_line.min(lines.len());

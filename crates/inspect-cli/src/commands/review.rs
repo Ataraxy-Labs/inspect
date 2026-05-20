@@ -6,7 +6,7 @@ use colored::Colorize;
 use sem_core::git::types::DiffScope;
 
 use crate::OutputFormat;
-use inspect_core::analyze::analyze;
+use inspect_core::analyze::{analyze_with_options, AnalyzeOptions};
 use inspect_core::llm::{
     estimate_entity_input_tokens, AnthropicClient, EntityLlmReview, LlmProvider, LlmReviewOptions,
     LlmReviewStatus, LlmVerdict, OpenAIClient,
@@ -125,7 +125,14 @@ pub async fn run(args: ReviewArgs) {
     let scope = parse_scope(&args.target);
     let repo = args.repo.canonicalize().unwrap_or(args.repo.clone());
 
-    let mut result = match analyze(&repo, scope) {
+    let options = AnalyzeOptions {
+        include_dependent_code: true,
+        include_dependency_code: true,
+        include_file_context: true,
+        ..AnalyzeOptions::default()
+    };
+
+    let mut result = match analyze_with_options(&repo, scope, &options) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {}", e);

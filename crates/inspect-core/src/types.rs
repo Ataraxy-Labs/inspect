@@ -67,6 +67,17 @@ pub struct DependentEntity {
     pub content: String,
     pub own_dependent_count: usize,
     pub is_public_api: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation: Option<String>,
+}
+
+/// A line-numbered source window around a changed entity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceContext {
+    pub file_path: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub content: String,
 }
 
 /// Review information for a single changed entity.
@@ -102,6 +113,16 @@ pub struct EntityReview {
     /// Only populated when analyze_with_options is called with include_dependent_code.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependent_entities: Vec<DependentEntity>,
+    /// Full source code of top dependency entities (callees/helpers).
+    /// Only populated when analyze_with_options is called with include_dependency_code.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependency_entities: Vec<DependentEntity>,
+    /// Surrounding source window from the file before the change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_file_context: Option<SourceContext>,
+    /// Surrounding source window from the file after the change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_file_context: Option<SourceContext>,
 }
 
 /// A logical group of related changes (from untangling).

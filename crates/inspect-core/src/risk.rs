@@ -33,7 +33,10 @@ pub fn suggest_verdict(result: &ReviewResult) -> ReviewVerdict {
     }
     // All cosmetic = likely approvable
     let all_cosmetic = !result.entity_reviews.is_empty()
-        && result.entity_reviews.iter().all(|r| r.structural_change == Some(false));
+        && result
+            .entity_reviews
+            .iter()
+            .all(|r| r.structural_change == Some(false));
     if all_cosmetic {
         return ReviewVerdict::LikelyApprovable;
     }
@@ -234,6 +237,9 @@ mod tests {
             dependent_names: vec![],
             dependency_names: vec![],
             dependent_entities: vec![],
+            dependency_entities: vec![],
+            before_file_context: None,
+            after_file_context: None,
         }
     }
 
@@ -242,7 +248,9 @@ mod tests {
         let review = make_review(
             ChangeType::Modified,
             ChangeClassification::Text,
-            0, 0, false,
+            0,
+            0,
+            false,
             Some(false),
         );
         let score = compute_risk_score(&review, 10);
@@ -254,7 +262,9 @@ mod tests {
         let review = make_review(
             ChangeType::Deleted,
             ChangeClassification::Functional,
-            8, 5, true,
+            8,
+            5,
+            true,
             Some(true),
         );
         let score = compute_risk_score(&review, 10);
@@ -267,7 +277,9 @@ mod tests {
         let review = make_review(
             ChangeType::Added,
             ChangeClassification::Functional,
-            0, 0, false,
+            0,
+            0,
+            false,
             None,
         );
         let score = compute_risk_score(&review, 10);
@@ -280,7 +292,9 @@ mod tests {
         let review = make_review(
             ChangeType::Modified,
             ChangeClassification::Functional,
-            0, 0, false,
+            0,
+            0,
+            false,
             Some(true),
         );
         let score = compute_risk_score(&review, 100);
@@ -293,7 +307,9 @@ mod tests {
         let review = make_review(
             ChangeType::Modified,
             ChangeClassification::Functional,
-            5, 8, true,
+            5,
+            8,
+            true,
             Some(true),
         );
         let score = compute_risk_score(&review, 100);

@@ -90,7 +90,10 @@ pub fn untangle(
                 reviews[indices[0]].entity_name.clone()
             } else {
                 // Use common file path prefix or first entity name
-                let files: Vec<&str> = indices.iter().map(|&i| reviews[i].file_path.as_str()).collect();
+                let files: Vec<&str> = indices
+                    .iter()
+                    .map(|&i| reviews[i].file_path.as_str())
+                    .collect();
                 let common = common_prefix(&files);
                 if common.is_empty() {
                     format!("{} entities", entity_ids.len())
@@ -171,6 +174,9 @@ mod tests {
             dependent_names: vec![],
             dependency_names: vec![],
             dependent_entities: vec![],
+            dependency_entities: vec![],
+            before_file_context: None,
+            after_file_context: None,
         }
     }
 

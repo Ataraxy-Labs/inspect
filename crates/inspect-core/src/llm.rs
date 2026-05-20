@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::types::EntityReview;
+use crate::types::{DependentEntity, EntityReview, SourceContext};
 
 const DEFAULT_MAX_INPUT_TOKENS: u64 = 120_000;
 const DEFAULT_MAX_RETRIES: u32 = 3;
@@ -568,7 +568,7 @@ fn build_prompt(entity: &EntityReview) -> String {
     let mut parts = vec![
         format!("Entity: {} ({})", entity.entity_name, entity.entity_type),
         format!("File: {}", entity.file_path),
-        format!("Change: {:?}", entity.change_type),
+        format!("Change: {}", entity.change_type),
         format!("Classification: {}", entity.classification),
         format!(
             "Risk: {} (score {:.2})",
@@ -577,6 +577,14 @@ fn build_prompt(entity: &EntityReview) -> String {
         format!(
             "Blast radius: {}, Dependents: {}",
             entity.blast_radius, entity.dependent_count
+        ),
+        format!(
+            "Context semantics:\n\
+             - BEFORE and AFTER snippets are complete {} entity bodies, not full-file context.\n\
+             - File context windows are line-numbered excerpts around this entity.\n\
+             - Treat added entities/blocks as additive; omitted surrounding code was not removed unless Change is deleted.\n\
+             - Dependency/helper source shows direct callees referenced by this entity; dependent/caller source shows consumers of this entity.",
+            entity.entity_type
         ),
     ];
 
@@ -594,15 +602,77 @@ fn build_prompt(entity: &EntityReview) -> String {
         parts.push(format!("Dependents:\n{}", deps.join("\n")));
     }
 
+    if !entity.dependency_names.is_empty() {
+        let deps: Vec<String> = entity
+            .dependency_names
+            .iter()
+            .take(10)
+            .map(|(name, file)| format!("  {} ({})", name, file))
+            .collect();
+        parts.push(format!("Dependencies / helpers:\n{}", deps.join("\n")));
+    }
+
+    if let Some(ref context) = entity.before_file_context {
+        parts.push(format_source_context("BEFORE FILE CONTEXT", context));
+    }
+
     if let Some(ref before) = entity.before_content {
         parts.push(format!("BEFORE:\n```\n{}\n```", before));
+    }
+
+    if let Some(ref context) = entity.after_file_context {
+        parts.push(format_source_context("AFTER FILE CONTEXT", context));
     }
 
     if let Some(ref after) = entity.after_content {
         parts.push(format!("AFTER:\n```\n{}\n```", after));
     }
 
+    if !entity.dependency_entities.is_empty() {
+        parts.push(format_related_sources(
+            "DEPENDENCY / HELPER SOURCE",
+            &entity.dependency_entities,
+        ));
+    }
+
+    if !entity.dependent_entities.is_empty() {
+        parts.push(format_related_sources(
+            "DEPENDENT / CALLER SOURCE",
+            &entity.dependent_entities,
+        ));
+    }
+
     parts.join("\n\n")
+}
+
+fn format_source_context(label: &str, context: &SourceContext) -> String {
+    format!(
+        "{} ({}:{}-{}):\n```\n{}\n```",
+        label, context.file_path, context.start_line, context.end_line, context.content
+    )
+}
+
+fn format_related_sources(label: &str, entities: &[DependentEntity]) -> String {
+    entities
+        .iter()
+        .map(|entity| {
+            let relation = entity.relation.as_deref().unwrap_or("current");
+            format!(
+                "{} [{}]: {} {} ({}:{}-{}, public_api={}, dependents={})\n```\n{}\n```",
+                label,
+                relation,
+                entity.entity_type,
+                entity.entity_name,
+                entity.file_path,
+                entity.start_line,
+                entity.end_line,
+                entity.is_public_api,
+                entity.own_dependent_count,
+                entity.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[cfg(test)]
@@ -641,6 +711,23 @@ mod tests {
             dependent_names: vec![],
             dependency_names: vec![],
             dependent_entities: vec![],
+            dependency_entities: vec![],
+            before_file_context: None,
+            after_file_context: None,
+        }
+    }
+
+    fn related_entity(name: &str, content: &str) -> DependentEntity {
+        DependentEntity {
+            entity_name: name.to_string(),
+            entity_type: "function".to_string(),
+            file_path: "src/lib.rs".to_string(),
+            start_line: 1,
+            end_line: 3,
+            content: content.to_string(),
+            own_dependent_count: 1,
+            is_public_api: false,
+            relation: Some("after".to_string()),
         }
     }
 
@@ -824,5 +911,49 @@ mod tests {
             body.len(),
             body
         )
+    }
+
+    #[test]
+    fn build_prompt_includes_review_context_sections() {
+        let entity = EntityReview {
+            entity_id: "src/lib.rs::function::validate".to_string(),
+            entity_name: "validate".to_string(),
+            entity_type: "function".to_string(),
+            file_path: "src/lib.rs".to_string(),
+            change_type: ChangeType::Added,
+            classification: ChangeClassification::Functional,
+            risk_score: 0.7,
+            risk_level: RiskLevel::High,
+            blast_radius: 2,
+            dependent_count: 1,
+            dependency_count: 1,
+            is_public_api: true,
+            structural_change: Some(true),
+            group_id: 1,
+            start_line: 10,
+            end_line: 14,
+            before_content: None,
+            after_content: Some("pub fn validate(ok: bool) { reject(); }".to_string()),
+            dependent_names: vec![("caller".to_string(), "src/lib.rs".to_string())],
+            dependency_names: vec![("reject".to_string(), "src/lib.rs".to_string())],
+            dependent_entities: vec![related_entity("caller", "fn caller() { validate(true); }")],
+            dependency_entities: vec![related_entity("reject", "fn reject() -> ! { panic!(); }")],
+            before_file_context: None,
+            after_file_context: Some(SourceContext {
+                file_path: "src/lib.rs".to_string(),
+                start_line: 8,
+                end_line: 16,
+                content: "   8: fn other() {}\n  10: pub fn validate(ok: bool) {".to_string(),
+            }),
+        };
+
+        let prompt = build_prompt(&entity);
+
+        assert!(prompt.contains("Context semantics:"));
+        assert!(prompt.contains("Treat added entities/blocks as additive"));
+        assert!(prompt.contains("Dependencies / helpers:"));
+        assert!(prompt.contains("AFTER FILE CONTEXT"));
+        assert!(prompt.contains("DEPENDENCY / HELPER SOURCE [after]: function reject"));
+        assert!(prompt.contains("DEPENDENT / CALLER SOURCE [after]: function caller"));
     }
 }
