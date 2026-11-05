@@ -1058,6 +1058,83 @@ mod tests {
         assert_eq!(helper.dependent_count, 1);
     }
 
+    /// Mark `dir` the way `jj git init --colocate` does. libgit2 refuses to
+    /// open a repository whose config names an extension it was not told to
+    /// tolerate, so before sem-core 0.15.1 every inspect command failed on a
+    /// jj colocated repo with `unsupported extension name
+    /// extensions.relativeworktrees`.
+    fn mark_jj_colocated(dir: &Path) {
+        for (key, value) in [
+            ("core.repositoryformatversion", "1"),
+            ("extensions.relativeWorktrees", "true"),
+        ] {
+            let out = Command::new("git")
+                .args(["config", key, value])
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git config {key} failed");
+        }
+    }
+
+    // The tolerance is a process-wide libgit2 setting that sem-core's
+    // GitBridge::open installs once, so these tests catch sem-core dropping
+    // it. They cannot catch a new inspect code path that opens a raw
+    // git2::Repository before GitBridge::open: another test in the same
+    // binary will usually have installed the setting already.
+
+    #[test]
+    fn analyze_commit_opens_jj_colocated_repo() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        mark_jj_colocated(dir);
+
+        std::fs::write(dir.join("main.rs"), "").unwrap();
+        commit(dir, "init");
+        std::fs::write(dir.join("main.rs"), "fn hello() {}\n").unwrap();
+        commit(dir, "add hello");
+
+        let result = analyze(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+        )
+        .expect("a relativeworktrees repo should open on the commit-tree path");
+
+        assert!(result
+            .entity_reviews
+            .iter()
+            .any(|r| r.entity_name == "hello"));
+    }
+
+    #[test]
+    fn analyze_staged_opens_jj_colocated_repo() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        mark_jj_colocated(dir);
+
+        std::fs::write(dir.join("main.rs"), "").unwrap();
+        commit(dir, "init");
+        std::fs::write(dir.join("main.rs"), "fn hello() {}\n").unwrap();
+        let add = Command::new("git")
+            .args(["add", "main.rs"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(add.status.success(), "git add failed");
+
+        let result = analyze(dir, DiffScope::Staged)
+            .expect("a relativeworktrees repo should open on the staged-index path");
+
+        assert!(result
+            .entity_reviews
+            .iter()
+            .any(|r| r.entity_name == "hello"));
+    }
+
     #[test]
     fn analyze_with_dependents_reads_dependent_code_from_commit_tree() {
         let tmp = TempDir::new().unwrap();
