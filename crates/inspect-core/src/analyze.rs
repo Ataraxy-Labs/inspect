@@ -208,13 +208,13 @@ pub fn analyze_with_options(
         review.risk_level = score_to_level(review.risk_score);
 
         for dep in &dependencies {
-            if changed_entity_ids.contains(&dep.id) {
-                dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
+            if changed_entity_ids.contains(dep.id.as_str()) {
+                dependency_edges.push((change.entity_id.clone(), dep.id.as_str().to_owned()));
             }
         }
         for dep in &dependents {
-            if changed_entity_ids.contains(&dep.id) {
-                dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
+            if changed_entity_ids.contains(dep.id.as_str()) {
+                dependency_edges.push((change.entity_id.clone(), dep.id.as_str().to_owned()));
             }
         }
 

@@ -86,7 +86,7 @@ pub fn predict_with_options(
 
         for dep in &dependents {
             // Skip dependents that are themselves changed (already in the diff)
-            if ctx.changed_entity_ids.contains(&dep.id) {
+            if ctx.changed_entity_ids.contains(dep.id.as_str()) {
                 continue;
             }
 
