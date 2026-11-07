@@ -1088,12 +1088,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
         init_repo(dir);
-        mark_jj_colocated(dir);
 
         std::fs::write(dir.join("main.rs"), "").unwrap();
         commit(dir, "init");
         std::fs::write(dir.join("main.rs"), "fn hello() {}\n").unwrap();
         commit(dir, "add hello");
+        // Prepare the fixture before enabling the extension so older Git
+        // binaries can set it up; Inspect must still open the marked repo.
+        mark_jj_colocated(dir);
 
         let result = analyze(
             dir,
@@ -1114,7 +1116,6 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
         init_repo(dir);
-        mark_jj_colocated(dir);
 
         std::fs::write(dir.join("main.rs"), "").unwrap();
         commit(dir, "init");
@@ -1125,6 +1126,9 @@ mod tests {
             .output()
             .unwrap();
         assert!(add.status.success(), "git add failed");
+
+        // Stage before marking the repo: setup must not require Git 2.48+.
+        mark_jj_colocated(dir);
 
         let result = analyze(dir, DiffScope::Staged)
             .expect("a relativeworktrees repo should open on the staged-index path");
