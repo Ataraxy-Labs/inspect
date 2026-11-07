@@ -118,7 +118,7 @@ fn is_syntax_line(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sem_core::model::change::{ChangeType, SemanticChange};
+    use sem_core::model::change::SemanticChange;
 
     fn make_change(before: &str, after: &str, structural: Option<bool>) -> SemanticChange {
         serde_json::from_value(serde_json::json!({

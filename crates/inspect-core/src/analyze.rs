@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use git2::{ObjectType, Repository, Tree};
 use sem_core::git::bridge::GitBridge;
@@ -7,6 +8,8 @@ use sem_core::git::types::{DiffScope, FileChange, FileStatus};
 use sem_core::model::change::ChangeType;
 use sem_core::parser::differ::compute_semantic_diff;
 use sem_core::parser::graph::EntityGraph;
+use sem_core::parser::plugin::SemanticParserPlugin;
+use sem_core::parser::plugins::code::CodeParserPlugin;
 use sem_core::parser::plugins::create_default_registry;
 use tempfile::TempDir;
 
@@ -205,13 +208,13 @@ pub fn analyze_with_options(
         review.risk_level = score_to_level(review.risk_score);
 
         for dep in &dependencies {
-            if changed_entity_ids.contains(&dep.id) {
-                dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
+            if changed_entity_ids.contains(dep.id.as_str()) {
+                dependency_edges.push((change.entity_id.clone(), dep.id.as_str().to_owned()));
             }
         }
         for dep in &dependents {
-            if changed_entity_ids.contains(&dep.id) {
-                dependency_edges.push((change.entity_id.clone(), dep.id.clone()));
+            if changed_entity_ids.contains(dep.id.as_str()) {
+                dependency_edges.push((change.entity_id.clone(), dep.id.as_str().to_owned()));
             }
         }
 
@@ -703,21 +706,55 @@ fn list_source_files(repo_path: &Path) -> Result<Vec<String>, AnalyzeError> {
     Ok(files)
 }
 
+/// Every extension sem-core's tree-sitter **code** plugin claims, read once
+/// from the plugin rather than hand-listed here.
+///
+/// Deliberately the code plugin and not the whole registry. The registry also
+/// carries the json/yaml/toml/csv/markdown/latex plugins, and admitting those
+/// is not merely noisy - `compute_risk_score` normalizes blast radius by the
+/// total graph entity count (`risk.rs`), so every score shrinks as the graph
+/// fills with documentation and dependency metadata. Measured on an otherwise
+/// identical change: one realistic 670 KB `package-lock.json` moved a function
+/// from High to Medium and the graph build from 3 ms to 738 ms. Two of the
+/// three `is_source_file` call sites - `materialize_index_source` and
+/// `materialize_source_files` - never apply `is_noise_file`, so a lockfile
+/// admitted here really is written out and parsed.
+///
+/// What deriving fixes: the list this replaced named 13 extensions while the
+/// code plugin claims 85, so Dart, Swift, Kotlin, Elixir, Bash, Lua and the
+/// rest never entered the dependency graph. Their changed entities were still
+/// triaged, which is what made the gap quiet rather than loud - `chunk`
+/// entities scored by line count, and a `blast_radius` of 0 that reads as
+/// "safe" instead of "not measured".
+///
+/// Not a total answer to "can sem parse this". sem's diff path also detects by
+/// shebang (`ParserRegistry::get_plugin_with_content`), so an extensionless
+/// `#!/usr/bin/env python` script still yields real entities in the diff while
+/// never entering the graph. Extension-keyed materialization cannot see those;
+/// they keep the same quiet zero this change removes for Dart.
+fn source_extensions() -> &'static HashSet<String> {
+    static EXTENSIONS: OnceLock<HashSet<String>> = OnceLock::new();
+    EXTENSIONS.get_or_init(|| {
+        CodeParserPlugin
+            .extensions()
+            .iter()
+            .map(|ext| ext.to_ascii_lowercase())
+            .collect()
+    })
+}
+
 fn is_source_file(path: &str) -> bool {
-    let path = path.to_lowercase();
-    path.ends_with(".rs")
-        || path.ends_with(".ts")
-        || path.ends_with(".tsx")
-        || path.ends_with(".js")
-        || path.ends_with(".jsx")
-        || path.ends_with(".py")
-        || path.ends_with(".go")
-        || path.ends_with(".java")
-        || path.ends_with(".c")
-        || path.ends_with(".cpp")
-        || path.ends_with(".rb")
-        || path.ends_with(".cs")
-        || path.ends_with(".php")
+    // `Path::file_name` rather than splitting on '/': this runs on Windows in
+    // CI (.github/workflows/test-windows.yml).
+    let Some(name) = Path::new(path).file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    // Every code-plugin extension is single-part (asserted in the tests
+    // below), so the last dot is the whole answer.
+    let Some(dot) = name.rfind('.') else {
+        return false;
+    };
+    source_extensions().contains(name[dot..].to_ascii_lowercase().as_str())
 }
 
 fn empty_result() -> ReviewResult {
@@ -1019,6 +1056,87 @@ mod tests {
 
         assert!(helper.start_line > 0);
         assert_eq!(helper.dependent_count, 1);
+    }
+
+    /// Mark `dir` the way `jj git init --colocate` does. libgit2 refuses to
+    /// open a repository whose config names an extension it was not told to
+    /// tolerate, so before sem-core 0.15.1 every inspect command failed on a
+    /// jj colocated repo with `unsupported extension name
+    /// extensions.relativeworktrees`.
+    fn mark_jj_colocated(dir: &Path) {
+        for (key, value) in [
+            ("core.repositoryformatversion", "1"),
+            ("extensions.relativeWorktrees", "true"),
+        ] {
+            let out = Command::new("git")
+                .args(["config", key, value])
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git config {key} failed");
+        }
+    }
+
+    // The tolerance is a process-wide libgit2 setting that sem-core's
+    // GitBridge::open installs once, so these tests catch sem-core dropping
+    // it. They cannot catch a new inspect code path that opens a raw
+    // git2::Repository before GitBridge::open: another test in the same
+    // binary will usually have installed the setting already.
+
+    #[test]
+    fn analyze_commit_opens_jj_colocated_repo() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(dir.join("main.rs"), "").unwrap();
+        commit(dir, "init");
+        std::fs::write(dir.join("main.rs"), "fn hello() {}\n").unwrap();
+        commit(dir, "add hello");
+        // Prepare the fixture before enabling the extension so older Git
+        // binaries can set it up; Inspect must still open the marked repo.
+        mark_jj_colocated(dir);
+
+        let result = analyze(
+            dir,
+            DiffScope::Commit {
+                sha: "HEAD".to_string(),
+            },
+        )
+        .expect("a relativeworktrees repo should open on the commit-tree path");
+
+        assert!(result
+            .entity_reviews
+            .iter()
+            .any(|r| r.entity_name == "hello"));
+    }
+
+    #[test]
+    fn analyze_staged_opens_jj_colocated_repo() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+
+        std::fs::write(dir.join("main.rs"), "").unwrap();
+        commit(dir, "init");
+        std::fs::write(dir.join("main.rs"), "fn hello() {}\n").unwrap();
+        let add = Command::new("git")
+            .args(["add", "main.rs"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(add.status.success(), "git add failed");
+
+        // Stage before marking the repo: setup must not require Git 2.48+.
+        mark_jj_colocated(dir);
+
+        let result = analyze(dir, DiffScope::Staged)
+            .expect("a relativeworktrees repo should open on the staged-index path");
+
+        assert!(result
+            .entity_reviews
+            .iter()
+            .any(|r| r.entity_name == "hello"));
     }
 
     #[test]
@@ -1340,5 +1458,118 @@ mod tests {
         assert_eq!(result.entity_reviews.len(), 2);
         assert_eq!(result.groups.len(), 2);
         assert!(result.dependency_edges.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod source_file_selection {
+    use super::{is_source_file, source_extensions};
+
+    /// The thirteen the hand-written allowlist named. None may regress.
+    const PREVIOUSLY_ALLOWED: &[&str] = &[
+        "a.rs", "a.ts", "a.tsx", "a.js", "a.jsx", "a.py", "a.go", "a.java", "a.c", "a.cpp", "a.rb",
+        "a.cs", "a.php",
+    ];
+
+    /// Languages the code plugin parses that the hand-written list dropped.
+    /// Each used to reach the fallback parser and come back as 20-line chunks.
+    const PREVIOUSLY_DROPPED: &[&str] = &["a.dart", "a.swift", "a.kt", "a.ex", "a.sh", "a.lua"];
+
+    /// Data, documentation and dependency metadata. The whole *registry*
+    /// claims these; the code plugin does not, and they must stay out.
+    const MUST_STAY_OUT: &[&str] = &[
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "npm-shrinkwrap.json",
+        "Cargo.toml",
+        "README.md",
+        "docs/guide.md",
+        "data.csv",
+        "config.yaml",
+    ];
+
+    #[test]
+    fn keeps_every_extension_the_hand_written_list_had() {
+        for path in PREVIOUSLY_ALLOWED {
+            assert!(is_source_file(path), "{path} regressed out of the set");
+        }
+    }
+
+    #[test]
+    fn picks_up_languages_the_hand_written_list_dropped() {
+        for path in PREVIOUSLY_DROPPED {
+            assert!(
+                is_source_file(path),
+                "{path}: the code plugin parses this, so it must reach the graph"
+            );
+        }
+    }
+
+    /// The regression guard for risk-score deflation. `compute_risk_score`
+    /// divides blast radius by the total graph entity count, so every one of
+    /// these admitted into the graph shrinks every score in the report. A
+    /// 670 KB lockfile measured a full risk band (High -> Medium) and 3 ms ->
+    /// 738 ms. Deriving from the whole registry instead of the code plugin
+    /// silently reintroduces all of it.
+    #[test]
+    fn excludes_data_docs_and_lockfiles() {
+        for path in MUST_STAY_OUT {
+            assert!(
+                !is_source_file(path),
+                "{path} would be materialized into the graph and deflate every risk score"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_files_no_plugin_claims() {
+        for path in [
+            "justfile",
+            "Makefile",
+            "Cargo.lock",
+            "a.unknownext",
+            "gradle.properties",
+        ] {
+            assert!(!is_source_file(path), "{path} should not be materialized");
+        }
+    }
+
+    /// `is_source_file` matches on the final dot only. That is correct exactly
+    /// while no code extension is multi-part; if sem-core ever adds one (the
+    /// svelte plugin already has `.svelte.spec.ts`, but that is a different
+    /// plugin), this fails and the matcher needs a multi-suffix scan.
+    #[test]
+    fn every_code_extension_is_single_part() {
+        for ext in source_extensions() {
+            assert!(
+                !ext[1..].contains('.'),
+                "{ext} is multi-part; final-dot matching would miss it"
+            );
+        }
+    }
+
+    #[test]
+    fn handles_paths_without_an_extension() {
+        for path in ["deploy", "src/deploy", ".gitignore", ""] {
+            assert!(!is_source_file(path), "{path:?} has no claimed extension");
+        }
+    }
+
+    #[test]
+    fn is_derived_from_the_plugin_not_hand_listed() {
+        // Guards the drift this change fixes: 13 hand-listed against 85
+        // claimed. An exact count would be brittle across sem-core bumps,
+        // which is the point - assert that it tracks.
+        let derived = source_extensions();
+        assert!(
+            derived.len() > PREVIOUSLY_ALLOWED.len() * 4,
+            "expected the code plugin to claim many more than the 13 hand-listed, got {}",
+            derived.len()
+        );
+    }
+
+    #[test]
+    fn is_case_insensitive() {
+        assert!(is_source_file("SRC/Main.DART"));
     }
 }
